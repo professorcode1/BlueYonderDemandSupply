@@ -3,9 +3,67 @@ import opensimplex
 import random
 from time import sleep
 import scipy.linalg as sla
-import sys
+import numba 
 
-EPSILON = sys.float_info.epsilon
+@numba.jit(nogil = True)  
+def normal_random_distribution(data_array, X_array, expd_vl):
+    # print("here")
+    EPSILON = 0.001
+    data_len = data_array.size
+    data_array[:] = 1 / data_len
+    current_E = np.sum(data_array * X_array)
+    middle = np.argmax(X_array > expd_vl) - 1
+    while abs(current_E - expd_vl) > EPSILON:
+        # print(abs(current_E - expd_vl) / expd_vl)
+        left_i = random.randint( 0, middle )
+        rght_i = random.randint( middle + 1, data_len - 1 )
+        if current_E < expd_vl:
+            up_lim = min(data_array[left_i] , ( expd_vl - current_E ) / ( X_array[rght_i] - X_array[left_i] ) )
+            mu = up_lim / 2
+            sigma = up_lim / 6
+            x = np.clip(np.random.normal( mu, sigma, 1 ), 0, up_lim)[0]
+            data_array[left_i] -= x
+            data_array[rght_i] += x
+            current_E += x * ( X_array[rght_i] - X_array[left_i] )
+        else:
+            up_lim = min(data_array[rght_i] , ( current_E - expd_vl ) / ( X_array[rght_i] - X_array[left_i] ) ) 
+            mu = up_lim / 2
+            sigma = up_lim / 6
+            x = np.clip(np.random.normal( mu, sigma, 1 ), 0, up_lim)[0]
+            data_array[left_i] += x
+            data_array[rght_i] -= x
+            current_E -= x * ( X_array[rght_i] - X_array[left_i] )
+
+
+#     1)number of stores 
+#     2)number of products :- an int representing the number of products
+#     3timeframe :- an int representing the number of days we simulate
+#     4)factory_capacity :- an int representing how many total products the factory can produce in a day
+#     5)DC_capacity :- an int representing how many total products can be stored:
+#     6)demand range min :- an int saying the least value of each products order
+#     7)demand range max :- an int saying the max value of each products order
+#     8)truck_capacity :- total products truck can carry
+#     9)data = array of shape (stores, products, demand_range, timeframe) where data[w][x][y][z] = probability of
+#         store w wanting product x in (y + demand_range_min) amount on day z 
+#     10)truck_max_cap :- hypothetically, the number of trucks on a day can be min(max_supply, max_demand)
+#         i.e. 1 truck per product from demand to supply 
+#         max_supply = DC_capacity
+#         max_demand = demand_range_max * number of stores * number of products
+#         but simulating this wastes a lot of space, so we resonably cap the number of trucks to save space
+#     11)DC_cap_to_noise_mean_factor: -I generate 4d simplex noise and multiply that with DC_Capacity to get 
+#             data array, but if demand always tends towards max supply then because of inoptimality 
+#         it will keep on cummilating, keeping this near 1 is like a stress test for the algorithm
+
+@numba.njit(parallel= True, nogil = True)
+def getDataInter(data, demand_range_min, demand_range_max):
+    (number_of_stores, number_of_products, timeframe, _) = data.shape
+    for store in numba.prange(number_of_stores):
+        print(store* 100 / number_of_stores)
+        for product in np.arange(number_of_products):
+            for time in np.arange(timeframe):
+                expd_vl = data[store, product, time, 0]
+                normal_random_distribution(data[store, product, time], np.arange(demand_range_min, demand_range_max + 1), expd_vl)
+
 class TestCase:
     def __init__(self, number_of_stores,number_of_products, timeframe = 90, factory_capacity = 200, 
                        DC_capacity = 50, demand_range_min = 10, demand_range_max = 400,
@@ -46,60 +104,15 @@ class TestCase:
         total = np.sum(data[:,:,:,0])
         cumm_dmnd_ = self.timeframe * self.DC_capacity * DC_cap_to_noise_mean_factor
         data[:, :, :, 0] *= cumm_dmnd_ / total 
-        def normal_random_distribution(data_array, X_array, expd_vl):
-            def recurse(left_i, rght_i, E, P):
-                if left_i + 3 <= rght_i:
-                    middle = left_i + np.argmax( X_array[ left_i : rght_i ] > E ) - 1
-                    if middle + 2 == rght_i:
-                        return recurse(middle, rght_i, E, P)
-                    if left_i == middle:
-                        return recurse(left_i, left_i +2, E, P)
-                    p_l = random.uniform(0, P)
-                    p_r = P - p_l
-                    x_l_upper =  X_array[ middle ] * p_l
-                    x_l_lower =  X_array[ left_i ] * p_l
-                    x_l = random.uniform(x_l_lower, x_l_upper)
-                    x_r = (E - p_l * x_l) / p_r
-                    print("Probabilitys \t",p_l, p_r, P)
-                    print("Left X       \t",x_l_lower, x_l_upper, x_l)
-                    print("Right X      \t",x_r)
-                    print("X            \t",x_l,  E, x_r)
-                    print("Indexse      \t",left_i, middle, rght_i)
-                    print()
-                    sleep(5)
-                    recurse(left_i, middle +1, x_l, p_l)
-                    recurse(middle +1, rght_i, x_r, p_r)
-                elif left_i + 2 == rght_i:
-                    x_l = X_array[ left_i ]
-                    x_r = X_array[ rght_i ]
-                    data_array[ left_i ] = (E - P * x_r) / (x_l - x_r)
-                    data_array[ rght_i ] = (E - P * x_l) / (x_r - x_l)
-                elif left_i + 1 == rght_i:
-                    assert False, "Algorithm is broken, this should not have happened"
-                else:
-                    return 
-            data_len = data_array.size
-            data_array[:] = 0
-            X_array = np.sort(X_array)
-            assert X_array[0] <=  expd_vl and expd_vl < X_array[-1], "Not possible to generate distribution"
-            recurse(0, data_len, expd_vl, 1)
-            print(data_array)
-                
+
                 
                 
         if not callable(expected_value_to_distribution):
             if expected_value_to_distribution == "normal random distribution":
                 expected_value_to_distribution = normal_random_distribution
         
-        for store in np.arange(self.number_of_stores):
-            for product in np.arange(self.number_of_products):
-                for time in np.arange(self.timeframe):
-                    expd_vl = data[store, product, time, 0]
-                    expected_value_to_distribution(data[store, product, time], 
-                                                   np.arange(self.demand_range_min, self.demand_range_max + 1),
-                                                   expd_vl)
-                    return data
-#                     print(np.sum(data[store, product, time]))
+        getDataInter(data, self.demand_range_min, self.demand_range_max)
+        
         return data
-tc = TestCase(2,2, DC_capacity=200)
+tc = TestCase(10,10, DC_capacity=20000)
 hlpr = tc.getData(DC_cap_to_noise_mean_factor = 1, simplex_reduction_factor = 0.3)
