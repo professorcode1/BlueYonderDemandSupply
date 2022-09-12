@@ -4,8 +4,8 @@ import random
 from time import sleep
 import scipy.linalg as sla
 import sys
-
-EPSILON = sys.float_info.epsilon
+import math
+EPSILON = 0.00001
 class TestCase:
     def __init__(self, number_of_stores,number_of_products, timeframe = 90, factory_capacity = 200, 
                        DC_capacity = 50, demand_range_min = 10, demand_range_max = 400,
@@ -49,34 +49,66 @@ class TestCase:
         def normal_random_distribution(data_array, X_array, expd_vl):
             def recurse(left_i, rght_i, E, P):
                 if left_i + 3 <= rght_i:
-                    middle = left_i + np.argmax( X_array[ left_i : rght_i ] > E ) - 1
+                    middle = left_i + np.argmax( X_array[ left_i : rght_i ] > (E / P) ) - 1
                     if middle + 2 == rght_i:
+                        print("before right\n")
                         return recurse(middle, rght_i, E, P)
                     if left_i == middle:
+                        print("after left")
                         return recurse(left_i, left_i +2, E, P)
-                    p_l = random.uniform(0, P)
+
+                    determinent = math.sqrt(E * (X_array[middle] + X_array[rght_i-1]) - P * P * X_array[middle] * X_array[rght_i-1] )
+                    p_low = (P * X_array[rght_i-1] - determinent) / (2 * (X_array[middle] + X_array[rght_i-1]))
+                    p_hgh = (P * X_array[rght_i-1] + determinent) / (2 * (X_array[middle] + X_array[rght_i-1]))
+                    print(determinent, p_low, p_hgh)
+                    hlpr = P - math.sqrt( E / X_array[ rght_i - 1 ] )
+                    if hlpr < 0:
+                        hlpr = np.inf
+                    p_l = random.uniform(p_hgh,  P - math.sqrt( E / X_array[ rght_i - 1 ] ))
                     p_r = P - p_l
-                    x_l_upper =  X_array[ middle ] * p_l
-                    x_l_lower =  X_array[ left_i ] * p_l
+                    x_l_lower_1 = X_array[ left_i  ] * p_l
+                    x_l_lower_2 = ( E - (X_array[ rght_i - 1] * p_r * p_r) ) / p_l
+                    x_l_upper_1 = E * ( 1 - P + p_l ) / p_l
+                    x_l_upper_2 = X_array[middle ] * p_l
+                    # x_l_upper_3 = (E - X_array[ middle + 2 ] * p_r * p_r) / p_l
+                    x_l_upper_4 = E 
+                    # print(x_l_lower_1, x_l_lower_2, x_l_upper_1, x_l_upper_2, x_l_upper_3, x_l_upper_4)
+                    print(x_l_lower_1, x_l_lower_2, x_l_upper_1, x_l_upper_2, x_l_upper_4)
+                    # print(x_l_lower_1, x_l_upper_1, x_l_upper_2, x_l_upper_4)
+                    # x_l_lower = x_l_lower_1
+                    x_l_upper = min(min(x_l_upper_1, x_l_upper_2) , x_l_upper_4)
+                    x_l_lower = max(x_l_lower_1, x_l_lower_2 )
+                    # x_l_upper = min(min(x_l_upper_1, x_l_upper_2) , min(x_l_upper_3, x_l_upper_4))
                     x_l = random.uniform(x_l_lower, x_l_upper)
-                    x_r = (E - p_l * x_l) / p_r
+                    x_r = ( E - ( p_l * x_l ) ) / p_r
+                    print("X Array      \t", X_array[left_i], X_array[rght_i-1])
                     print("Probabilitys \t",p_l, p_r, P)
-                    print("Left X       \t",x_l_lower, x_l_upper, x_l)
+                    print("Left X       \t",x_l_lower,x_l, x_l_upper )
                     print("Right X      \t",x_r)
                     print("X            \t",x_l,  E, x_r)
                     print("Indexse      \t",left_i, middle, rght_i)
                     print()
-                    sleep(5)
-                    recurse(left_i, middle +1, x_l, p_l)
-                    recurse(middle +1, rght_i, x_r, p_r)
+                    assert x_l_lower <= x_l_upper, "0"
+                    assert 0 <= p_l and p_l <= P, "1"
+                    assert 0 <= p_r and p_r <= P, "2"
+                    assert X_array[left_i] * p_l < x_l , "3.1"
+                    assert x_l<= X_array[middle] * p_l , "3.2"
+                    assert X_array[middle + 1] * p_r <= x_r, "4.1"
+                    assert x_r < X_array[rght_i-1] * p_r  , "4.2"
+                    assert x_l < E, "5.1"
+                    assert E < x_r, "5.2"
+                    # sleep(1)
+                    recurse(left_i, middle + 1, x_l, p_l)
+                    recurse(middle + 1,rght_i , x_r, p_r)
                 elif left_i + 2 == rght_i:
                     x_l = X_array[ left_i ]
                     x_r = X_array[ rght_i ]
                     data_array[ left_i ] = (E - P * x_r) / (x_l - x_r)
-                    data_array[ rght_i ] = (E - P * x_l) / (x_r - x_l)
+                    data_array[ left_i + 1 ] = (E - P * x_l) / (x_r - x_l)
                 elif left_i + 1 == rght_i:
                     assert False, "Algorithm is broken, this should not have happened"
                 else:
+                    print("else\t",left_i, rght_i)
                     return 
             data_len = data_array.size
             data_array[:] = 0
