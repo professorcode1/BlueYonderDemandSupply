@@ -5,6 +5,8 @@ from time import sleep
 import scipy.linalg as sla
 import numba 
 
+__all__ = ["TestCase"]
+
 @numba.jit(nogil = True)  
 def normal_random_distribution(data_array, X_array, expd_vl):
     # print("here")
@@ -15,8 +17,10 @@ def normal_random_distribution(data_array, X_array, expd_vl):
     middle = np.argmax(X_array > expd_vl) - 1
     while abs(current_E - expd_vl) > EPSILON:
         # print(abs(current_E - expd_vl) / expd_vl)
+        # print(0, middle, expd_vl)
         left_i = random.randint( 0, middle )
         rght_i = random.randint( middle + 1, data_len - 1 )
+    
         if current_E < expd_vl:
             up_lim = min(data_array[left_i] , ( expd_vl - current_E ) / ( X_array[rght_i] - X_array[left_i] ) )
             mu = up_lim / 2
@@ -80,10 +84,9 @@ class TestCase:
 
         self.maximum_truck = truck_max_cap * min(DC_capacity, demand_range_max * number_of_stores*number_of_products )
     
-    def getData(self, DC_cap_to_noise_mean_factor = 1, seed = None, simplex_reduction_factor = 0.3,
-                expected_value_to_distribution = "normal random distribution" ):
+    def getData(self, DC_cap_to_noise_mean_factor = 1, seed = None, simplex_reduction_factor = 0.3):
 #         simplex_reduction_factor :- making this value low will reduce variance and all data will look the same
-#                                    keeping it high will make the data look completely random 
+#                                    keeping it high will make the data look completely random . 0.3 is just the right value
         demand_range = self.demand_range_max - self.demand_range_min + 1
         data = np.zeros((self.number_of_stores, self.number_of_products, self.timeframe, demand_range), 
                         dtype=np.float32)
@@ -104,15 +107,14 @@ class TestCase:
         total = np.sum(data[:,:,:,0])
         cumm_dmnd_ = self.timeframe * self.DC_capacity * DC_cap_to_noise_mean_factor
         data[:, :, :, 0] *= cumm_dmnd_ / total 
-
-                
-                
-        if not callable(expected_value_to_distribution):
-            if expected_value_to_distribution == "normal random distribution":
-                expected_value_to_distribution = normal_random_distribution
-        
+        clipps_required = np.sum(np.logical_or(data[:,:,:,0] <= self.demand_range_min, data[:,:,:,0] > self.demand_range_max))
+        total_size = self.number_of_stores * self.number_of_products * self.timeframe
+        print(f"clipping {clipps_required} out of {total_size} values")
+        assert clipps_required <  0.05 * total_size, "DC Capacity is way to low for this system to ever work, if you belive this is false (unlikely) decrease simplex_reduction_factor "
+        data[:, :, :, 0]
         getDataInter(data, self.demand_range_min, self.demand_range_max)
         
         return data
-tc = TestCase(10,10, DC_capacity=20000)
-hlpr = tc.getData(DC_cap_to_noise_mean_factor = 1, simplex_reduction_factor = 0.3)
+if __name__ == "__main__":
+    tc = TestCase(1,1, DC_capacity=50)
+    hlpr = tc.getData(DC_cap_to_noise_mean_factor = 1, simplex_reduction_factor = 0.3)
