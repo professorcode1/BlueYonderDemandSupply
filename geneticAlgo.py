@@ -16,6 +16,7 @@ class GeneticAlgorithm:
         MULTIPROCESSOR_COUNT = self.device.get_attributes()[cudaDrvr.device_attribute.MULTIPROCESSOR_COUNT]
         self.numberOfActiveBlocks = MULTIPROCESSOR_COUNT *( MAX_THREADS_PER_MULTIPROCESSOR / MAX_THREADS_PER_BLOCK )
         self.threadsPerBlock = MAX_THREADS_PER_BLOCK
+        self.totalActiveThreads = self.numberOfActiveBlocks * self.threadsPerBlock
 
     
     def __call__(self):

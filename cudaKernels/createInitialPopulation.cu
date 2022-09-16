@@ -48,32 +48,35 @@ __global__ void create_initial_population(int *population,const int population_s
         __shared__ int block_solution_padding;
         
         int block_thread_id = col_major_3D(tIdx, tIdy, tIdz, bDmx, bDmy, bDmz);
-        int global_thread_id = threadsPerBlock * bIdx + block_thread_id;
+        int global_thread_id = (threadsPerBlock * bIdx + block_thread_id) % 4096;
         
         if(block_thread_id == 0){
-            population_per_block = population_size / gDmx + (population_size % gDmx != 0);
+            population_per_block = population_size / gDmx;
+            if(bIdx == gDmx -1){
+                population_per_block += population_size % gDmx;
+            }
             block_solution_padding = population_per_block * bIdx;
             population_iter = 0;
         }
-        __threadfence_block();
+        __syncthreads();
         
         while( population_iter * bDmx < population_per_block ){
             
-            int thread_sol_index = block_solution_padding + population_iter * bIdx + tIdx;
+            int thread_sol_index = block_solution_padding + population_iter * bDmx + tIdx;
        
             if(block_thread_id == 0){
                 time_iter = 0;
             }
-            __threadfence_block();
+            __syncthreads();
 
             while( time_iter * bDmy < time_frame ){
             
-                int thread_time_index = time_iter * bIdy + tIdy;
+                int thread_time_index = time_iter * bDmy + tIdy;
                 
                 if(block_thread_id == 0){
                     trucks_iter = 0;
                 }
-                __threadfence_block();
+                __syncthreads();
 
                 while( trucks_iter * bDmz < number_of_trucks ){
                     
@@ -85,13 +88,16 @@ __global__ void create_initial_population(int *population,const int population_s
                     
                     int store = ceil(rndm_nmbr_1 * number_of_stores)  - 1; //curand_uniform includes 1 and not 0.
                     store = rndm_nmbr_2 <= probability_of_no_truck ? -1 : store;
-                    int index = row_major_4D(thread_sol_index, thread_time_index, thread_truck_index, 0, population_size, time_frame,  number_of_trucks, truck_capacity);
-                    population[ index ] = store; 
-
-                    for(int thread_capacity_index = 1 ; thread_capacity_index <= truck_capacity ; thread_capacity_index++){
-                        population[ index + thread_capacity_index ] = ceil(curand_uniform( rndm_nmbr_gnrtr + global_thread_id ) * number_of_products) - 1;
-                    }
+                    int index = row_major_4D(thread_sol_index, thread_time_index, thread_truck_index, 0, population_size, time_frame,  number_of_trucks, truck_capacity + 1);
                     
+                    if( thread_sol_index < population_size && thread_sol_index - block_solution_padding < population_per_block &&  thread_time_index < time_frame && thread_truck_index < number_of_trucks ){
+
+                        population[ index ] = store; 
+
+                        for(int thread_capacity_index = 1 ; thread_capacity_index <= truck_capacity ; thread_capacity_index++){
+                            population[ index + thread_capacity_index ] = ceil(curand_uniform( rndm_nmbr_gnrtr + global_thread_id ) * number_of_products) - 1;
+                        }
+                    }
                     if(block_thread_id == 0){
                         trucks_iter++;
                     }
