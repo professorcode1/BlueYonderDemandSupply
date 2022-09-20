@@ -84,7 +84,7 @@ class TestCase:
 
         self.maximum_truck = truck_max_cap * min(DC_capacity, demand_range_max * number_of_stores*number_of_products )
     
-    def getData(self, DC_cap_to_noise_mean_factor = 1, seed = None, simplex_reduction_factor = 0.3, suppress_error = False):
+    def getData(self, demand_per_day_average, seed = None, simplex_reduction_factor = 0.3, suppress_error = False):
 #         simplex_reduction_factor :- making this value low will reduce variance and all data will look the same
 #                                    keeping it high will make the data look completely random . 0.3 is just the right value
         demand_range = self.demand_range_max - self.demand_range_min + 1
@@ -105,14 +105,14 @@ class TestCase:
         data[:, :, :, 0] /= 2
         
         total = np.sum(data[:,:,:,0])
-        cumm_dmnd_ = self.timeframe * self.DC_capacity * DC_cap_to_noise_mean_factor
+        cumm_dmnd_ = self.timeframe * demand_per_day_average
         data[:, :, :, 0] *= cumm_dmnd_ / total 
         clipps_required = np.sum(np.logical_or(data[:,:,:,0] <= self.demand_range_min, data[:,:,:,0] > self.demand_range_max))
         total_size = self.number_of_stores * self.number_of_products * self.timeframe
         print(f"clipping {clipps_required} out of {total_size} values")
         if not suppress_error:
-            assert clipps_required <  0.05 * total_size, "DC Capacity is way to low for this system to ever work, if you belive this is false (unlikely) decrease simplex_reduction_factor , or set suppress_error to true"
-        data[:, :, :, 0]
+            assert clipps_required <  0.05 * total_size, "DC Capacity is either way too low or way to high for this system to ever work, if you belive this is false (unlikely) decrease simplex_reduction_factor , or set suppress_error to true"
+        data = data.clip(self.demand_range_min, self.demand_range_max)
         getDataInter(data, self.demand_range_min, self.demand_range_max)
         
         return data
