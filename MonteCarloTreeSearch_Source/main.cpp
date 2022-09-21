@@ -1,53 +1,97 @@
-#include <vector>
+#include <bits/stdc++.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
 #include <chrono>
 #include <thread>
-#include <iostream>
 #include <boost/variant.hpp>
-namespace py = pybind11;
 
-struct WorldAction{
-  std::vector < std::vector < int > > demand; // [store->[proudct -> demand]]
-};
-struct MyAction{
-  std::vector < std::vector < std::pair<int,int> > > trucks; //truck->[ product_id, amount ] 
-  std::vector < int > factory_produce; //[product_id -> amount produced] 
-};
+namespace py = pybind11;
+unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+std::mt19937 rndm_nmbr_gnrt(seed);
+
 class Node{
 protected:
   Node* parent_;
   float success_;
   int nmbr_simls_;
-  std::list < std::pair < boost::variant < WorldAction, MyAction >, Node* > > children;
 
-
-
-  bool IamLeaf(){
-    return children.empty();
-  }
+  virtual bool IamLeaf() = 0;
 public:
   Node(Node* parent): parent_{parent}, success_{0}, nmbr_simls_{0} {};
 
-  // virtual Node* select(int sibling_cnt) = 0;
+  float fitness(int parent_smls, float exploration_factor){
+      float exploit = success_ / nmbr_simls_;
+      float explore = exploration_factor * sqrt(log(parent_smls) / this->nmbr_simls_);
+      return exploit + explore;
+  }
+
+  virtual Node* select(int &depth, float exploration_factor) = 0;
+  // virtual void expand() = 0;
 };
 
 class WorldTurn: public Node{
 private:
+  struct WorldAction{
+    std::vector < std::vector < int > > demand; // [store->[proudct -> demand]]
+  };
 
+
+  std::list<std::pair<WorldAction, Node*> > children;
+
+  bool IamLeaf() override{
+    return children.empty();
+  }
 public:
   WorldTurn(Node* parent):Node{parent} {};
-
+  Node* select(int &depth, float exploration_factor) override {
+    if(this->IamLeaf())
+      return this;
+    int indexOfNodeToExplore = static_cast<int>(rndm_nmbr_gnrt() % children.size());
+    /***
+    Since a Monte Carlo Tree Simulation is used for advesarial games and reinforcement learning, 
+    Not making this step random would imply the universe is creating demand in a way that minimises my
+    success. Its not, its doing it probabalistically. The children are already creating probabalistically
+    so exploring them will be random.  
+    ***/
+    std::list<std::pair<WorldAction, Node*> >::iterator data_ = children.begin();
+    advance(data_, indexOfNodeToExplore);
+    depth++;
+    return data_->second->select(depth, exploration_factor); 
+  }
 
 };
 
 class MyTurn : public Node{
 private:
+  struct MyAction{
+    std::vector < std::vector < std::pair<int,int> > > trucks; //truck->[ product_id, amount ] 
+    std::vector < int > factory_produce; //[product_id -> amount produced] 
+  };
+  
+  
+  std::list<std::pair<MyAction, Node*> > children;
 
+  bool IamLeaf() override{
+    return children.empty();
+  }
 public:
   MyTurn(Node* parent):Node{parent} {};
-
+  Node* select(int &depth, float exploration_factor) override {
+    if(this->IamLeaf())
+      return this;
+    depth++;
+    Node* fitest_chld = nullptr;
+    float crnt_bst_fitness = std::numeric_limits<float>::lowest();
+    for(const auto data_ : children ){
+      float crnt_fitness = data_.second->fitness(this->nmbr_simls_, exploration_factor);
+      if( crnt_fitness > crnt_bst_fitness ){
+        crnt_bst_fitness = crnt_fitness;
+        fitest_chld = data_.second;
+      }
+    }
+    return fitest_chld;
+  }
 };
 
 class MonteCarloTreeSearchCpp {
@@ -111,12 +155,13 @@ public:
     };
 
 
-    void operator () (int number_of_iterations){
-      while(number_of_iterations--){
-        int depth = 0;
-        // Node* node = treeRoot->select(depth);
-      }
+  
+  void operator () (int number_of_iterations){
+    while(number_of_iterations--){
+      int depth = 0;
+      Node* node = treeRoot->select(depth, this->exploration_factor_);
     }
+  }
 };
 
 
