@@ -117,5 +117,6 @@ class TestCase:
         
         return data
 if __name__ == "__main__":
-    tc = TestCase(1,1, DC_capacity=50)
-    hlpr = tc.getData(DC_cap_to_noise_mean_factor = 1, simplex_reduction_factor = 0.3)
+    tc = TestCase(10,10, DC_capacity=50)
+    hlpr = tc.getData(demand_per_day_average = 10000, simplex_reduction_factor = 0.3)
+    print(hlpr.nbytes)
