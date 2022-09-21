@@ -26,8 +26,9 @@ public:
       return exploit + explore;
   }
 
-  virtual Node* select(int &depth, float exploration_factor) = 0;
-  // virtual void expand() = 0;
+  virtual Node* select( int &depth, float exploration_factor ) = 0;
+  virtual void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* node) = 0;
+  virtual void expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> &wareHouseState) = 0;
 };
 
 class WorldTurn: public Node{
@@ -41,6 +42,20 @@ private:
 
   bool IamLeaf() override{
     return children.empty();
+  }
+  void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* node) override {
+    
+    for(const auto child : children){
+      if(child.second == node){
+        for(const auto store: child.first.demand){
+          std::transform(wareHouseState.begin(), wareHouseState.end(), store.begin(), wareHouseState.begin(), std::plus<int>{});
+        }
+      }
+    }
+    
+    if(this->parent_){
+      this->parent_->findWarehouseState(wareHouseState, this);
+    }
   }
 public:
   WorldTurn(Node* parent):Node{parent} {};
@@ -59,14 +74,15 @@ public:
     depth++;
     return data_->second->select(depth, exploration_factor); 
   }
+  void expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> &wareHouseState) override {
 
+  }
 };
 
 class MyTurn : public Node{
 private:
   struct MyAction{
-    std::vector < std::vector < std::pair<int,int> > > trucks; //truck->[ product_id, amount ] 
-    std::vector < int > factory_produce; //[product_id -> amount produced] 
+    std::vector < std::pair< int, std::vector < int > > > trucks; //[truck->(store, [ product_id -> amount ])] 
   };
   
   
@@ -74,6 +90,20 @@ private:
 
   bool IamLeaf() override{
     return children.empty();
+  }
+  void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* node) override {
+
+    for(const auto child : children){
+      if(child.second == node){
+        for(const auto truck : child.first.trucks){
+          std::transform(wareHouseState.begin(), wareHouseState.end(), truck.second.begin(), wareHouseState.begin(), std::minus<int>{});
+        }
+      }
+    }
+
+    if(this->parent_){
+      this->parent_->findWarehouseState(wareHouseState, this);
+    }
   }
 public:
   MyTurn(Node* parent):Node{parent} {};
@@ -160,6 +190,10 @@ public:
     while(number_of_iterations--){
       int depth = 0;
       Node* node = treeRoot->select(depth, this->exploration_factor_);
+      {
+        std::vector<int32_t> wareHouseStateCpy(wareHouseState_);
+        node->expand( this->nmbr_brnch_wrldTurn_, this->nmbr_brnch_myTurn_, wareHouseStateCpy );
+      }
     }
   }
 };
