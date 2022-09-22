@@ -46,8 +46,9 @@ public:
   float fitness(int parent_smls, float exploration_factor);
 
   virtual Node* select( float exploration_factor ) = 0;
-  virtual void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* node) = 0;
-  virtual void expand(  int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> &wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
+  virtual void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* chld_node) = 0;
+  virtual void findCurrentTotalDmnd(std::vector<std::vector<int> > &crnt_total_demand, Node* chld_node) = 0;
+  virtual void expand(  int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
     int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min) = 0;
 };
 
@@ -63,11 +64,12 @@ private:
   std::list<std::pair<WorldAction, Node*> > children;
 
   bool IamLeaf() override;
-  void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* node) override;
+  void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* chld_node) override;
+  void findCurrentTotalDmnd(std::vector<std::vector<int> > &crnt_total_demand, Node* chld_node) override;
 public:
   WorldTurn(Node* parent, int depth):Node{parent, depth} {};
   Node* select(float exploration_factor) override ;
-  void expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> &wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
+  void expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
     int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min) override ;
 };
 
@@ -82,12 +84,13 @@ private:
   std::list<std::pair<MyAction, Node*> > children;
 
   bool IamLeaf() override ; 
-  void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* node) override ;
+  void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* chld_node) override ;
+  void findCurrentTotalDmnd(std::vector<std::vector<int> > &crnt_total_demand, Node* chld_node) override;
 
 public:
   MyTurn(Node* parent, int depth):Node{parent, depth} {};
   Node* select(float exploration_factor) override ;
-  void expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> &wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
+  void expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
     int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min) override ;
 };
 

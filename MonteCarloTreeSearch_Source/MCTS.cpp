@@ -9,7 +9,7 @@ float Node::fitness(int parent_smls, float exploration_factor){
 bool WorldTurn::IamLeaf() {
   return children.empty();
 }
-void WorldTurn::findWarehouseState(std::vector<int32_t> &wareHouseState, Node* node)  {
+void WorldTurn::findWarehouseState(std::vector<int32_t> &wareHouseState, Node* chld_node)  {
   
   // for(const auto child : children){
   //   if(child.second == node){
@@ -21,6 +21,19 @@ void WorldTurn::findWarehouseState(std::vector<int32_t> &wareHouseState, Node* n
   //damn bad logic above, the world just puts a demand, it doesn't do anything to the warehouse 
   if(this->parent_){
     this->parent_->findWarehouseState(wareHouseState, this);
+  }
+}
+void WorldTurn::findCurrentTotalDmnd(std::vector< std::vector<int> > &crnt_total_demand, Node* chld_node){
+  for(const auto child : this->children){
+    if(child.second == chld_node){
+      
+      int nmbr_strs = crnt_total_demand.size();
+      for(int store = 0; store < nmbr_strs ; store++){
+        std::transform(crnt_total_demand[store].begin(), crnt_total_demand[store].end(), child.first.demand[store].begin(), crnt_total_demand[store].begin(), std::plus<int>{});
+      }
+      
+      break;
+    }
   }
 }
 Node* WorldTurn::select(float exploration_factor)  {
@@ -37,7 +50,7 @@ Node* WorldTurn::select(float exploration_factor)  {
   advance(data_, indexOfNodeToExplore);
   return data_->second->select(exploration_factor); 
 }
-void WorldTurn::expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> &wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
+void WorldTurn::expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
   int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min)  {
     /***
         The expand function  just create nmbr_brnch_wrldTurn simulation, with the probability of each simulation same as in the 
@@ -70,18 +83,36 @@ void WorldTurn::expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vec
 bool MyTurn::IamLeaf() {
   return children.empty();
 }
-void MyTurn::findWarehouseState(std::vector<int32_t> &wareHouseState, Node* node)  {
+void MyTurn::findWarehouseState(std::vector<int32_t> &wareHouseState, Node* chld_node)  {
   for(const auto child : children){
-    if(child.second == node){
+    if(child.second == chld_node){
       for(const auto truck : child.first.trucks){
         std::transform(wareHouseState.begin(), wareHouseState.end(), truck.second.begin(), wareHouseState.begin(), std::minus<int>{});
       }
       std::transform(wareHouseState.begin(), wareHouseState.end(), child.first.total_prduc.begin(), wareHouseState.begin(), std::plus<int>{});
+
+      break;
     }
   }
-  if(this->parent_){
-    this->parent_->findWarehouseState(wareHouseState, this);
+  this->parent_->findWarehouseState(wareHouseState, this);
+  // if(this->parent_){
+  //   this->parent_->findWarehouseState(wareHouseState, this);
+  // }
+}
+
+void MyTurn::findCurrentTotalDmnd(std::vector< std::vector<int> > &crnt_total_demand, Node* chld_node){
+  for(const auto child : this->children){
+    if(child.second == chld_node){
+      int nmbr_strs = crnt_total_demand.size();
+
+      for(const auto truck: child.first.trucks){
+        std::transform(crnt_total_demand[truck.first].begin(), crnt_total_demand[truck.first].end(),truck.second.begin(), crnt_total_demand[truck.first].begin(), std::minus<int>{});
+      }
+
+      break;
+    }
   }
+  this->parent_->findCurrentTotalDmnd(crnt_total_demand, this);
 }
 Node* MyTurn::select(float exploration_factor)  {
     if(this->IamLeaf()){
@@ -98,7 +129,7 @@ Node* MyTurn::select(float exploration_factor)  {
     }
     return fitest_chld->select(exploration_factor);
 }
-void MyTurn::expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> &wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
+void MyTurn::expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
   int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min)  {
     /***
         Steps
@@ -121,6 +152,9 @@ void MyTurn::expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector
                             are sent optimally
                 4.2.2) send the trucks, no option to restock, since factory will already be at its limit. 
     ***/
+  std::vector< std::vector<int32_t> > crnt_total_demand(nmbr_strs, std::vector<int>(nmbr_prdcts, 0));
+  this->findCurrentTotalDmnd(crnt_total_demand, this);
+
 }
 
 
@@ -137,7 +171,7 @@ MonteCarloTreeSearchCpp::MonteCarloTreeSearchCpp(int demand_min,int demand_max,i
     nmbr_brnch_wrldTurn_{nmbr_brnch_wrldTurn},
     nmbr_brnch_myTurn_{nmbr_brnch_myTurn},
     nmbr_simulations_per_rollout_{nmbr_simulations_per_rollout},
-    max_nmbr_trucks_{max_nmbr_trucks},
+    // max_nmbr_trucks_{max_nmbr_trucks},
     exploration_factor_{exploration_factor} {
     
     py::buffer_info wareHouseState = wareHouseStatePy.request(); 
@@ -177,13 +211,13 @@ MonteCarloTreeSearchCpp::MonteCarloTreeSearchCpp(int demand_min,int demand_max,i
       }
     }
     
-    if(widthOfFirstLevel == -1){
-      widthOfFirstLevel_ = demand_range_;
-    }else if (widthOfFirstLevel <= demand_range_ && widthOfFirstLevel > 0){
-      widthOfFirstLevel_ = widthOfFirstLevel;
-    }else{
-      throw std::runtime_error("Width of first level not sent properly. It should be -1 for max, or in [1, max]");
-    }
+    // if(widthOfFirstLevel == -1){
+    //   widthOfFirstLevel_ = demand_range_;
+    // }else if (widthOfFirstLevel <= demand_range_ && widthOfFirstLevel > 0){
+    //   widthOfFirstLevel_ = widthOfFirstLevel;
+    // }else{
+    //   throw std::runtime_error("Width of first level not sent properly. It should be -1 for max, or in [1, max]");
+    // }
     
     treeRoot = new WorldTurn(nullptr, 0);
     
@@ -193,11 +227,8 @@ MonteCarloTreeSearchCpp::MonteCarloTreeSearchCpp(int demand_min,int demand_max,i
 void MonteCarloTreeSearchCpp::operator () (int number_of_iterations){
   while(number_of_iterations--){
     Node* node = treeRoot->select(this->exploration_factor_);
-    {
-      std::vector<int32_t> wareHouseStateCpy(wareHouseState_);
-      node->expand( this->nmbr_brnch_wrldTurn_, this->nmbr_brnch_myTurn_, wareHouseStateCpy,cmltv_demand_prb_dstrbutn_, this->nmbr_strs_, this->nmbr_prdcts_, 
-        this->time_frm_, this->demand_range_, this->demand_min_ );
-    }
+    node->expand( this->nmbr_brnch_wrldTurn_, this->nmbr_brnch_myTurn_, this->wareHouseState_,this->cmltv_demand_prb_dstrbutn_, this->nmbr_strs_, 
+      this->nmbr_prdcts_, this->time_frm_, this->demand_range_, this->demand_min_ );
   }
 }
 
