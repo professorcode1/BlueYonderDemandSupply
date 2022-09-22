@@ -1,4 +1,5 @@
 MonteCarloTreeSearch_Source/build/*
+!MonteCarloTreeSearch_Source/build/build.sh
 MonteCarloTreeSearch_Source/pybind11
 __pycache__
 .ipynb_checkpoints

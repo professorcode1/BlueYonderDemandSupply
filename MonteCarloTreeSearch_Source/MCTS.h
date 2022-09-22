@@ -4,7 +4,6 @@
 #include <pybind11/numpy.h>
 #include <chrono>
 #include <thread>
-#include <boost/variant.hpp>
 
 class MyTurn;
 
@@ -95,7 +94,6 @@ public:
 class MonteCarloTreeSearchCpp {
 private:
   Node* treeRoot;
-  int widthOfFirstLevel_;
   int demand_min_;
   int demand_max_;
   int demand_range_;
@@ -106,74 +104,15 @@ private:
   int nmbr_brnch_wrldTurn_;
   int nmbr_brnch_myTurn_;
   int nmbr_simulations_per_rollout_;
-  int max_nmbr_trucks_;
   float exploration_factor_;
   std::vector<int32_t> wareHouseState_;
   std::vector<float> demand_prb_dstrbutn_;
   std::vector<float> cmltv_demand_prb_dstrbutn_;
 
 public:
-  MonteCarloTreeSearchCpp(int widthOfFirstLevel,int demand_min,int demand_max,int nmbr_strs,int nmbr_prdcts,int time_frm,int DC_cpcty,
-  int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn,int nmbr_simulations_per_rollout, int max_nmbr_trucks, float exploration_factor,
-   py::array_t<int32_t> wareHouseStatePy, py::array_t<float> demand_prb_dstrbutnPy) : 
-    // widthOfFirstLevel_{widthOfFirstLevel},
-    demand_min_{demand_min},
-    demand_max_{demand_max},
-    nmbr_strs_{nmbr_strs},
-    nmbr_prdcts_{nmbr_prdcts},
-    time_frm_{time_frm},
-    DC_cpcty_{DC_cpcty},
-    nmbr_brnch_wrldTurn_{nmbr_brnch_wrldTurn},
-    nmbr_brnch_myTurn_{nmbr_brnch_myTurn},
-    nmbr_simulations_per_rollout_{nmbr_simulations_per_rollout},
-    max_nmbr_trucks_{max_nmbr_trucks},
-    exploration_factor_{exploration_factor} {
-      py::buffer_info wareHouseState = wareHouseStatePy.request(); 
-      py::buffer_info demand_prb_dstrbutn = demand_prb_dstrbutnPy.request(); 
-      if(wareHouseState.ndim != 1)
-        throw std::runtime_error("The states of warehouse should be a 1-D array");
-      if(wareHouseState.shape[0] != nmbr_prdcts_)
-        throw std::runtime_error("The wareHouseState length should be equal to the number of products");
-      wareHouseState_.resize(nmbr_prdcts_);
-      copy(static_cast<int32_t *>(wareHouseState.ptr), static_cast<int32_t *>(wareHouseState.ptr) + nmbr_prdcts, wareHouseState_.begin());
-
-      int sm_of_prds = accumulate(wareHouseState_.begin(), wareHouseState_.end(), 0);
-      if(sm_of_prds > DC_cpcty_)
-        throw std::runtime_error("There are more products in the warehouse than the capacity, which is impossible.");
-
-      if(demand_prb_dstrbutn.ndim != 4)
-        throw std::runtime_error("Incorrect dimentions for the probability distribution");
-      int demand_range_ = demand_max_ - demand_min_ + 1;
-      if(demand_prb_dstrbutn.shape != std::vector<py::ssize_t>({nmbr_strs_, nmbr_prdcts_, time_frm_, demand_range_}))
-        throw std::runtime_error("Shape of probability distribution is not correct");
-
-      int prb_dstrbutn_sz = nmbr_strs_ * nmbr_prdcts_ * time_frm_ * demand_range_;
-      demand_prb_dstrbutn_.resize(prb_dstrbutn_sz);
-      copy(static_cast<float* >(demand_prb_dstrbutn.ptr), static_cast<float* >(demand_prb_dstrbutn.ptr) + prb_dstrbutn_sz, demand_prb_dstrbutn_.begin());
-
-      cmltv_demand_prb_dstrbutn_.resize(prb_dstrbutn_sz);
-      for(int store = 0 ; store < nmbr_strs_ ; store++){
-        for(int product = 0 ; product < nmbr_prdcts_ ; product++){
-          for(int time = 0 ; time < time_frm_ ; time++){
-            int strt_indx = rowMajor4D(store, product, time, 0, nmbr_strs_, nmbr_prdcts_, time_frm_, demand_range_);
-            cmltv_demand_prb_dstrbutn_[strt_indx] = demand_prb_dstrbutn_[strt_indx]; 
-            for(int demand = 1 ; demand < demand_range_ ; demand++){
-              cmltv_demand_prb_dstrbutn_[strt_indx + demand] = cmltv_demand_prb_dstrbutn_[strt_indx + demand - 1] + demand_prb_dstrbutn_[strt_indx + demand];
-            }
-          }
-        }
-      }
-
-      if(widthOfFirstLevel == -1){
-        widthOfFirstLevel_ = demand_range_;
-      }else if (widthOfFirstLevel <= demand_range_ && widthOfFirstLevel > 0){
-        widthOfFirstLevel_ = widthOfFirstLevel;
-      }else{
-        throw std::runtime_error("Width of first level not sent properly. It should be -1 for max, or in [1, max]");
-      }
-
-      treeRoot = new WorldTurn(nullptr, 0);
-    };
+  MonteCarloTreeSearchCpp(int demand_min,int demand_max,int nmbr_strs,int nmbr_prdcts,int time_frm,int DC_cpcty,
+  int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn,int nmbr_simulations_per_rollout,  float exploration_factor,
+   py::array_t<int32_t> wareHouseStatePy, py::array_t<float> demand_prb_dstrbutnPy) ;
 
 
   

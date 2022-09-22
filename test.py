@@ -13,5 +13,9 @@ if __name__ == "__main__":
     demand_prb_dstrbutnPy = tc.getData(1000, simplex_reduction_factor = 0.3)
     nmbr_brnch_wrldTurn = 10
     nmbr_brnch_myTurn = 10
-    MonteCarloTreeSearch(100, 10, 400, stores, products, time_frm,DC_cpcty, nmbr_brnch_wrldTurn, nmbr_brnch_myTurn,np.zeros(products, dtype=np.int32), demand_prb_dstrbutnPy)
+    nmbr_smls_pr_rollout = 100
+    max_trucks = 10
+    exploration_factor = 2.0
+    MonteCarloTreeSearch(100, 10, 400, stores, products, time_frm,DC_cpcty, nmbr_brnch_wrldTurn, nmbr_brnch_myTurn, nmbr_smls_pr_rollout,max_trucks,
+        exploration_factor, np.zeros(products, dtype=np.int32), demand_prb_dstrbutnPy)
     
