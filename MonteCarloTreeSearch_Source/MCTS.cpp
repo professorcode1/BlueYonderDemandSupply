@@ -56,7 +56,7 @@ WorldAction WorldTurn::createRandomWorldAction(int nmbr_strs, int nmbr_prdcts,in
     for(int product = 0 ; product < nmbr_prdcts ; product++){
       float rndm_nmbr_nrml = get_rndm_nmbr_nrml();
       int data_indx = rowMajor4D(store, product, time, 0, nmbr_strs, nmbr_prdcts, time_frm, demand_range);
-      wa.demand[store][product] = demand_min + binarySearchFirstLargerIndex(cmltv_demand_prb_dstrbutn, rndm_nmbr_nrml, data_indx, data_indx + demand_range);
+      wa.demand[store][product] = demand_min + binarySearchFirstLargerIndex<float>(cmltv_demand_prb_dstrbutn, rndm_nmbr_nrml, data_indx, data_indx + demand_range);
     }
   }
   return wa;
@@ -133,48 +133,87 @@ Node* MyTurn::select(float exploration_factor)  {
     }
     return fitest_chld->select(exploration_factor);
 }
+void MyTurn::createRandomMyActionSubRoutine_GenerateTuckingForStore(const std::vector<bool> &willLastTruckBeSent, 
+  const std::vector<bool> &semiFilledTruckNeeded, int nmbr_prdcts_to_send, const int truck_capacity, const int nmbr_prdcts, std::vector<int> &send_to_store,
+  MyAction &my_actn, const int store){
+  if( (! willLastTruckBeSent[store]) && semiFilledTruckNeeded[store]){
+    int number_of_products_to_be_dropped = nmbr_prdcts_to_send % truck_capacity;
+    nmbr_prdcts_to_send -= number_of_products_to_be_dropped;
+    //this horribly inefficient method can be imporved by sampling number_of_products_to_be_dropped rndm nmbrs b/w [0, total number of products ) 
+    //and using that to drop products 
+    while(number_of_products_to_be_dropped > 0){
+      int rndm_prdct = get_rndm_int(0, nmbr_prdcts);
+      if(send_to_store[rndm_prdct] > 0){
+        send_to_store[rndm_prdct]--;
+        my_actn.total_prduc[rndm_prdct]--;
+        number_of_products_to_be_dropped--;
+      }
+    }
+  }
+  {
+    int product = 0;
+    int truck_unused = 0;
+    // my_actn.trucks.push_back(make_pair(store, std::vector<int>(nmbr_prdcts, 0)));
+    // truck_unused = truck_capacity;
+    while(nmbr_prdcts_to_send > 0){
+      if(send_to_store[product] > 0 && truck_unused > 0){
+        int product_shift = std::min(send_to_store[product], truck_unused);
+        my_actn.trucks.back().second[product] += product_shift;
+        send_to_store[product] -= product_shift;
+        truck_unused -= product_shift;
+        nmbr_prdcts_to_send -= product_shift;
+      }else if(send_to_store[product] == 0 && truck_unused > 0){
+        product++;
+      }else if(send_to_store[product] > 0 && truck_unused == 0){
+        my_actn.trucks.push_back(make_pair(store, std::vector<int>(nmbr_prdcts, 0)));
+        truck_unused = truck_capacity;
+      }else{
+        // send_to_store[product] == 0 && truck_unused == 0
+        product++;
+        my_actn.trucks.push_back(make_pair(store, std::vector<int>(nmbr_prdcts, 0)));
+        truck_unused = truck_capacity;
+      }
+    }
+  }
+}
+int MyTurn::createRandomMyActionSubRoutine_LiabilityTrkVc(std::vector<bool> &willLastTruckBeSent, const std::vector<int> &total_product_store,
+  int nmbr_strs, int truck_capacity ){
+  int ignored_product = 0;
+  //given a willLastTruckBeSent, randomly drop the once which are being sent (i.e evaluates random bool if willLastTruckBeSent is true)
+  for(int store = 0 ; store < nmbr_strs ; store++){
+    float lastTrkUtilizsn = static_cast<float>(total_product_store[store] % truck_capacity) / static_cast<float>(truck_capacity);
+    willLastTruckBeSent[store] = willLastTruckBeSent[store] && (get_rndm_nmbr_nrml() <  lastTrkUtilizsn);
+    ignored_product += willLastTruckBeSent[store] * (total_product_store[store] % truck_capacity);
+  }
+  return ignored_product;
+}
 MyAction MyTurn::createRandomMyAction(int truck_capacity, int factory_production_limit, int DC_cpcty, const std::vector<int> &wareHouseState, 
 const std::vector< std::vector<int32_t> > &crnt_total_demand ){
     /***
         Steps
         1) Find the cummulative deamnd right now, current demand + what wasn't met before
-        2) Create trucks for each store such that entire cummulative demand is met (randomly)
-        3) Look at each truck which is partially full and reject it with a certain probability 
-            !!=> Right now the probability of rejection is just = number of empty slots / total slots
-        4) Now that trucks to be sent have been created, look at whether the DC Stock + the factory production limit can meet the demand
-            4.1)If it can
-                    4.1.1)Send the trucks 
-                    4.1.2) Look at remaining factory production power and DC empty stock, and randomly restock
-            4.2) If it cannot 
-                4.2.1)look at trucks which are going semi filled and see if eliminating some/all of them gets demand meetble
-                    4.2.1.1)if it does, apply step 3 on these trucks (drop them with probability prp to their emptiness)
-                    4.2.2.2)else
-                            forget about the trucks, keep randomly reducing (store, product) deamand by one untill supply can meet demand 
-                            Now create the trucks and look at the semi filled trucks
-                            Apply step 3 on these trucks  (drop them with probability prp to their emptiness)
-
+        2) Find what part of this demand needs to be generated by the factory 
+        3) Find out the total number of products that will be sent in unfilled trucks if the entire demand can be met = liability_val
+        4) If demand can be met by generation from the factory 
+           Then decide which trucks not to send and send 
+        5)else if, see if (demand - liability_val) can be met 
+          If it can, randomly drop trucks till it dropped trucks prouct doesnt exceed liability_val
+          Now drop the remaining trucks randomly with prb prp to the emptiness
+        6) else 
+          Randomly reduce (store, product) value till it can be met
+          make the trucks
+          Drop the liability trucks randomly 
     ***/
   int nmbr_strs = crnt_total_demand.size();
   int nmbr_prdcts = crnt_total_demand.at(0).size();
-  std::vector<bool> willLastTruckBeSent(nmbr_strs), semiFilledTruckNeeded(nmbr_strs);
+  std::vector<bool> semiFilledTruckNeeded(nmbr_strs);
   std::vector<int> total_product_store(nmbr_strs), //[store-> demand of all products added]
   product_to_demand(nmbr_prdcts); //[product->entire demand of that product at warehouse]
-  int ignored_demand = 0;
+  int liability_val = 0;
   for(int store = 0 ; store < nmbr_strs ; store++){
     total_product_store[store] = std::accumulate(crnt_total_demand[store].begin(), crnt_total_demand[store].end(), 0);
     semiFilledTruckNeeded[store] = total_product_store[store] % truck_capacity;
-    float lastTrkUtilizsn = static_cast<float>(total_product_store[store] % truck_capacity) / static_cast<float>(truck_capacity);
-    willLastTruckBeSent[store] = get_rndm_nmbr_nrml() <  lastTrkUtilizsn;
-  }
-  {
-    int store = 0;
-    ignored_demand = std::accumulate(total_product_store.begin(), total_product_store.end(), 0, 
-      [&truck_capacity, &willLastTruckBeSent, &store](int total, int current){
-        int ans = total + ( current % truck_capacity ) * ( ! willLastTruckBeSent[store] );
-        store++;
-        return ans;
-      }
-    );
+    liability_val += total_product_store[store] % truck_capacity;
   }
   for(int product = 0 ; product < nmbr_prdcts ; product++){
     product_to_demand[product] = std::accumulate(crnt_total_demand.begin(), crnt_total_demand.end(), 0, 
@@ -193,78 +232,61 @@ const std::vector< std::vector<int32_t> > &crnt_total_demand ){
       return std::max( 0, product_demand - product_in_warehouse );
     }
   );
-  int total_fctry_gnrt_demand = std::accumulate(fctry_gnrt_demand.begin(), fctry_gnrt_demand.end(), 0) - ignored_demand ; 
+  int total_fctry_gnrt_demand = std::accumulate(fctry_gnrt_demand.begin(), fctry_gnrt_demand.end(), 0); 
   MyAction my_actn;
-  if( total_fctry_gnrt_demand <= factory_production_limit ){
-    int fctry_pwr_srpls = factory_production_limit - total_fctry_gnrt_demand;
-    int DC_cpcty_srpls = DC_cpcty - DC_ttl_prds + DC_prdcts_used;
-    std::vector<int> unsent_produce = BeggarsAlgorithm( nmbr_prdcts + 1 , std::min(fctry_pwr_srpls, DC_cpcty_srpls) );
-    unsent_produce.pop_back();
-    //the last index being the number of slots we keep empty
-    my_actn.total_prduc = fctry_gnrt_demand;
-    std::transform(my_actn.total_prduc.begin(), my_actn.total_prduc.end(), unsent_produce.begin(), my_actn.total_prduc.begin(), std::plus<int>{});
-    for(int store = 0 ; store < nmbr_strs ; store++){
-      std::vector<int> send_to_store = crnt_total_demand[store];
-      int nmbr_prdcts_to_send = total_product_store[store];
-      if( (! willLastTruckBeSent[store]) && semiFilledTruckNeeded[store]){
-        int number_of_products_to_be_dropped = total_product_store[store] % truck_capacity;
-        nmbr_prdcts_to_send -= number_of_products_to_be_dropped;
-        while(number_of_products_to_be_dropped > 0){
-          int rndm_prdct = get_rndm_int(0, nmbr_prdcts);
-          if(send_to_store[rndm_prdct] > 0){
-            send_to_store[rndm_prdct]--;
-            my_actn.total_prduc[rndm_prdct]--;
-            number_of_products_to_be_dropped--;
-          }
-        }
-      }
-      {
-        int product = 0;
-        int truck_unused = 0;
-        // my_actn.trucks.push_back(make_pair(store, std::vector<int>(nmbr_prdcts, 0)));
-        // truck_unused = truck_capacity;
-        while(nmbr_prdcts_to_send > 0){
-          if(send_to_store[product] > 0 && truck_unused > 0){
-            int product_shift = std::min(send_to_store[product], truck_unused);
-            my_actn.trucks.back().second[product] += product_shift;
-            send_to_store[product] -= product_shift;
-            truck_unused -= product_shift;
-            nmbr_prdcts_to_send -= product_shift;
-          }else if(send_to_store[product] == 0 && truck_unused > 0){
-            product++;
-          }else if(send_to_store[product] > 0 && truck_unused == 0){
-            my_actn.trucks.push_back(make_pair(store, std::vector<int>(nmbr_prdcts, 0)));
-            truck_unused = truck_capacity;
-          }else{
-            // send_to_store[product] == 0 && truck_unused == 0
-            product++;
-            my_actn.trucks.push_back(make_pair(store, std::vector<int>(nmbr_prdcts, 0)));
-            truck_unused = truck_capacity;
-          }
+  std::vector<bool> willLastTruckBeSent(nmbr_strs, true);
+  if( ( total_fctry_gnrt_demand - liability_val ) <= factory_production_limit ){
+    //5
+    if( total_fctry_gnrt_demand > factory_production_limit ){
+      int dropped_truk_val = 0;
+      while( dropped_truk_val < ( factory_production_limit - total_fctry_gnrt_demand ) ){
+        int drpd_str = get_rndm_int(0, nmbr_strs);
+        if(willLastTruckBeSent[drpd_str]){
+          willLastTruckBeSent[drpd_str] = false;
+          dropped_truk_val += total_product_store[drpd_str] % truck_capacity;
         }
       }
     }
   }else{
-    int number_of_products_to_be_dropped = total_fctry_gnrt_demand - factory_production_limit;
-    std::vector<std::pair<int,int> > semi_fld_trks; //store its going to, how filled it is 
-    for(int store = 0 ; store < nmbr_strs ; store++){
-      if( willLastTruckBeSent[store] && semiFilledTruckNeeded[store] ){
-          semi_fld_trks.push_back(std::make_pair(  store, total_product_store[store] % truck_capacity));
-      }
-    }
-    std::sort( semi_fld_trks.begin(), semi_fld_trks.end(), [](const std::pair<int,int> &l, const std::pair<int,int> &r){ return l.second < r.second; });
-    int index_of_trucks_to_drop = 0;
-    int nmbr_semi_fld_trks = semi_fld_trks.size();
-    while( number_of_products_to_be_dropped > 0 && index_of_trucks_to_drop < nmbr_semi_fld_trks ){
-      int product_shift = std::min( number_of_products_to_be_dropped, semi_fld_trks[index_of_trucks_to_drop].second );
-      number_of_products_to_be_dropped -= product_shift;
-      index_of_trucks_to_drop++;
-    }
-    if(number_of_products_to_be_dropped == 0 ){
-      //4.2.1.1
-    }else{
+    //6
+    [&]{
+      std::vector<int> random_numbers = get_rndm_ints(0, total_fctry_gnrt_demand, total_fctry_gnrt_demand - factory_production_limit );
+      sort(random_numbers.begin(), random_numbers.end());
+      int low ,high = 0;
+      for(int store = 0 ; store < nmbr_strs ; store++){
+        for(int product = 0 ; product < nmbr_prdcts ; product++){
+          low = high;
+          high = crnt_total_demand[store][product] + low;
+          if(low >= random_numbers.back())
+            return ;
+          int product_drop = 0;
+          for(int strt_indx = binarySearchFirstLargerIndex<int>( random_numbers, low, 0, random_numbers.size()); strt_indx < random_numbers.size() ; strt_indx++){
+            if(random_numbers[strt_indx] >= high)
+              break;
+            product_drop++;
+          }
 
-    }
+          fctry_gnrt_demand[product] -= product_drop;
+        }
+      }
+      total_fctry_gnrt_demand = factory_production_limit;
+    }();
+
+  }
+  int ignored_product = createRandomMyActionSubRoutine_LiabilityTrkVc( willLastTruckBeSent, total_product_store, nmbr_strs, truck_capacity);  
+      
+  int fctry_pwr_srpls = factory_production_limit - ( total_fctry_gnrt_demand - ignored_product );
+  int DC_cpcty_srpls = DC_cpcty - ( DC_ttl_prds - DC_prdcts_used );
+  std::vector<int> unsent_produce = BeggarsAlgorithm( nmbr_prdcts + 1 , std::min(fctry_pwr_srpls, DC_cpcty_srpls) );
+  unsent_produce.pop_back();
+  //the last index being the number of slots we keep empty
+  my_actn.total_prduc.resize(nmbr_prdcts);
+  std::transform(fctry_gnrt_demand.begin(), fctry_gnrt_demand.end(), unsent_produce.begin(), my_actn.total_prduc.begin(), std::plus<int>{});
+  for(int store = 0 ; store < nmbr_strs ; store++){
+    std::vector<int> send_to_store = crnt_total_demand[store];
+    int nmbr_prdcts_to_send = total_product_store[store];
+    createRandomMyActionSubRoutine_GenerateTuckingForStore(willLastTruckBeSent, semiFilledTruckNeeded, nmbr_prdcts_to_send, truck_capacity, 
+      nmbr_prdcts, send_to_store, my_actn, store);
   }
   return my_actn;
 }

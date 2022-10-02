@@ -20,6 +20,14 @@ int get_rndm_int(int l, int r){
   int rndm_nmbr = abs(static_cast<int>(rndm_nmbr_gnrt()));
   return l + (rndm_nmbr % diff);
 }
+std::vector<int> get_rndm_ints(int l, int r, int n){
+  std::function<int()> gnrt_fnk = [&l, &r]() -> int {
+    return get_rndm_int(l, r);
+  };
+  std::vector<int> ans(n);
+  std::generate(ans.begin(), ans.end(), gnrt_fnk);
+  return ans;
+}
 int get_rndm_elmnt_set(const std::set<int> &s){
   int index = get_rndm_int(0, s.size());
   std::set<int>::const_iterator data = s.begin();
@@ -29,13 +37,12 @@ int get_rndm_elmnt_set(const std::set<int> &s){
 int rowMajor4D(int n1,int n2, int n3, int n4, int N1, int N2, int N3, int N4){
   return n4 + N4 * ( n3 + N3 * ( n2 + N2 * n1 ) );
 }
-
-int binarySearchFirstLargerIndex(const std::vector<float> &data_, float value, int left, int right){
+template <typename T>
+int binarySearchFirstLargerIndex(const std::vector<T> &data_, T value, int left, int right){
   /***
   Given a float vector and an index [l,r) it finds the first index i such that data_[i] >= value
-  assuming it exists, if not it returns last element.
+  assuming it exists, if not it r.
   ***/
-  value = std::min(value, data_[ right - 1 ]); //in case total probability in 0.998 and i send 0.999 as value 
   while (left != right) {
     int mid = (left + right) / 2;
     if (data_[mid] < value) {
@@ -47,6 +54,7 @@ int binarySearchFirstLargerIndex(const std::vector<float> &data_, float value, i
   }
   return left;
 }
+
 void combinationUtil(std::vector<int32_t> &data, int start, int end, int index, int r) {
 	
   if (index != r){
@@ -61,6 +69,8 @@ void combinationUtil(std::vector<int32_t> &data, int start, int end, int index, 
 }
 std::vector<int32_t> BeggarsAlgorithm(int n, int r){
 	//one random solution to x1+x2+x3...xn = r
+  if(r < 0)
+    throw std::runtime_error("The r in Beggars algorithm is less than 0, you must have created a DC Config with more products than capacity");
   int total = n + r - 1, choose = n - 1;
   std::vector<int32_t> data(n);
   combinationUtil(data, 0, total - 1, 0, choose );
@@ -118,6 +128,9 @@ class MyTurn : public Node{
 private:
   std::list<std::pair<MyAction, Node*> > children;
 
+
+  static void createRandomMyActionSubRoutine_GenerateTuckingForStore(const std::vector<bool> &willLastTruckBeSent, const std::vector<bool> &semiFilledTruckNeeded, int nmbr_prdcts_to_send, const int truck_capacity, const int nmbr_prdcts, std::vector<int> &send_to_store, MyAction &my_actn, const int store);
+  static int createRandomMyActionSubRoutine_LiabilityTrkVc(std::vector<bool> &willLastTruckBeSent, const std::vector<int> &total_product_store, int nmbr_strs, int truck_capacity );
   static MyAction createRandomMyAction(int truck_capacity, int factory_production_limit, int DC_cpcty, const std::vector<int> &wareHouseState, const std::vector< std::vector<int32_t> > &crnt_total_demand);
 
   bool IamLeaf() override ; 
