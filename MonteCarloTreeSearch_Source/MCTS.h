@@ -118,7 +118,7 @@ class MyTurn : public Node{
 private:
   std::list<std::pair<MyAction, Node*> > children;
 
-  static MyAction createRandomMyAction(int truck_capacity, int factory_production_limit, const std::vector<int> &wareHouseState, const std::vector< std::vector<int32_t> > &crnt_total_demand);
+  static MyAction createRandomMyAction(int truck_capacity, int factory_production_limit, int DC_cpcty, const std::vector<int> &wareHouseState, const std::vector< std::vector<int32_t> > &crnt_total_demand);
 
   bool IamLeaf() override ; 
   void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* chld_node) override ;

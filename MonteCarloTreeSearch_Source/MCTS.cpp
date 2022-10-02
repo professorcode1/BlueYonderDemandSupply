@@ -133,7 +133,7 @@ Node* MyTurn::select(float exploration_factor)  {
     }
     return fitest_chld->select(exploration_factor);
 }
-MyAction MyTurn::createRandomMyAction(int truck_capacity, int factory_production_limit, const std::vector<int> &wareHouseState, 
+MyAction MyTurn::createRandomMyAction(int truck_capacity, int factory_production_limit, int DC_cpcty, const std::vector<int> &wareHouseState, 
 const std::vector< std::vector<int32_t> > &crnt_total_demand ){
     /***
         Steps
@@ -146,9 +146,13 @@ const std::vector< std::vector<int32_t> > &crnt_total_demand ){
                     4.1.1)Send the trucks 
                     4.1.2) Look at remaining factory production power and DC empty stock, and randomly restock
             4.2) If it cannot 
-                4.2.1)look at trucks which are going semi filled and eliminate the once that can be entirely eliminated 
-                4.2.1) Randomly select which products not to send 
-                4.2.2) send the trucks, no option to restock, since factory will already be at its limit. 
+                4.2.1)look at trucks which are going semi filled and see if eliminating some/all of them gets demand meetble
+                    4.2.1.1)if it does, apply step 3 on these trucks (drop them with probability prp to their emptiness)
+                    4.2.2.2)else
+                            forget about the trucks, keep randomly reducing (store, product) deamand by one untill supply can meet demand 
+                            Now create the trucks and look at the semi filled trucks
+                            Apply step 3 on these trucks  (drop them with probability prp to their emptiness)
+
     ***/
   int nmbr_strs = crnt_total_demand.size();
   int nmbr_prdcts = crnt_total_demand.at(0).size();
@@ -179,19 +183,25 @@ const std::vector< std::vector<int32_t> > &crnt_total_demand ){
       }
     );
   }
-  std::vector<int> unmet_demand(nmbr_prdcts);
-  std::transform(product_to_demand.begin(), product_to_demand.end(), wareHouseState.begin(), unmet_demand.begin(), 
-    [](const int product_demand, const int product_in_warehouse){
+  std::vector<int> fctry_gnrt_demand(nmbr_prdcts);
+  int DC_prdcts_used = 0;
+  int DC_ttl_prds = 0;
+  std::transform(product_to_demand.begin(), product_to_demand.end(), wareHouseState.begin(), fctry_gnrt_demand.begin(), 
+    [&DC_prdcts_used, &DC_ttl_prds](const int product_demand, const int product_in_warehouse){
+      DC_ttl_prds += product_in_warehouse;
+      DC_prdcts_used += std::min( product_in_warehouse , product_demand );
       return std::max( 0, product_demand - product_in_warehouse );
     }
   );
-  int total_unmet_demand = std::accumulate(unmet_demand.begin(), unmet_demand.end(), 0) - ignored_demand ; 
+  int total_fctry_gnrt_demand = std::accumulate(fctry_gnrt_demand.begin(), fctry_gnrt_demand.end(), 0) - ignored_demand ; 
   MyAction my_actn;
-  if( total_unmet_demand < factory_production_limit ){
-    std::vector<int> unsent_produce = BeggarsAlgorithm( nmbr_prdcts + 1 , factory_production_limit - total_unmet_demand);
+  if( total_fctry_gnrt_demand <= factory_production_limit ){
+    int fctry_pwr_srpls = factory_production_limit - total_fctry_gnrt_demand;
+    int DC_cpcty_srpls = DC_cpcty - DC_ttl_prds + DC_prdcts_used;
+    std::vector<int> unsent_produce = BeggarsAlgorithm( nmbr_prdcts + 1 , std::min(fctry_pwr_srpls, DC_cpcty_srpls) );
     unsent_produce.pop_back();
     //the last index being the number of slots we keep empty
-    my_actn.total_prduc = product_to_demand;
+    my_actn.total_prduc = fctry_gnrt_demand;
     std::transform(my_actn.total_prduc.begin(), my_actn.total_prduc.end(), unsent_produce.begin(), my_actn.total_prduc.begin(), std::plus<int>{});
     for(int store = 0 ; store < nmbr_strs ; store++){
       std::vector<int> send_to_store = crnt_total_demand[store];
@@ -233,13 +243,28 @@ const std::vector< std::vector<int32_t> > &crnt_total_demand ){
           }
         }
       }
-
+    }
+  }else{
+    int number_of_products_to_be_dropped = total_fctry_gnrt_demand - factory_production_limit;
+    std::vector<std::pair<int,int> > semi_fld_trks; //store its going to, how filled it is 
+    for(int store = 0 ; store < nmbr_strs ; store++){
+      if( willLastTruckBeSent[store] && semiFilledTruckNeeded[store] ){
+          semi_fld_trks.push_back(std::make_pair(  store, total_product_store[store] % truck_capacity));
+      }
+    }
+    std::sort( semi_fld_trks.begin(), semi_fld_trks.end(), [](const std::pair<int,int> &l, const std::pair<int,int> &r){ return l.second < r.second; });
+    int index_of_trucks_to_drop = 0;
+    int nmbr_semi_fld_trks = semi_fld_trks.size();
+    while( number_of_products_to_be_dropped > 0 && index_of_trucks_to_drop < nmbr_semi_fld_trks ){
+      int product_shift = std::min( number_of_products_to_be_dropped, semi_fld_trks[index_of_trucks_to_drop].second );
+      number_of_products_to_be_dropped -= product_shift;
+      index_of_trucks_to_drop++;
+    }
+    if(number_of_products_to_be_dropped == 0 ){
+      //4.2.1.1
+    }else{
 
     }
-
-
-  }else{
-
   }
   return my_actn;
 }
