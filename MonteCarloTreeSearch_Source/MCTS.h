@@ -104,8 +104,8 @@ public:
   virtual Node* select( float exploration_factor ) = 0;
   virtual void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* chld_node) = 0;
   virtual void findCurrentTotalDmnd(std::vector<std::vector<int> > &crnt_total_demand, Node* chld_node) = 0;
-  virtual void expand(  int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
-    int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min) = 0;
+  // virtual void expand(  int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
+  //   int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min) = 0;
 };
 
 class WorldTurn: public Node{
@@ -121,7 +121,7 @@ public:
   WorldTurn(Node* parent, int depth):Node{parent, depth} {};
   Node* select(float exploration_factor) override ;
   void expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
-    int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min) override ;
+    int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min) ;
 };
 
 class MyTurn : public Node{
@@ -140,13 +140,11 @@ private:
 public:
   MyTurn(Node* parent, int depth):Node{parent, depth} {};
   Node* select(float exploration_factor) override ;
-  void expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
-    int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min) override ;
 };
 
 class MonteCarloTreeSearchCpp {
 private:
-  Node* treeRoot;
+  WorldTurn* treeRoot;
   int demand_min_;
   int demand_max_;
   int demand_range_;
@@ -170,7 +168,6 @@ public:
    py::array_t<int32_t> wareHouseStatePy, py::array_t<float> demand_prb_dstrbutnPy) ;
 
 
-  
-  void operator () (int number_of_iterations);
+  void MainLoop();
 };
 

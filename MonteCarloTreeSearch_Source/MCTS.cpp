@@ -75,9 +75,9 @@ void WorldTurn::expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vec
     }
     for(int iter_brnch = 0 ; iter_brnch < nmbr_brnch_wrldTurn ; iter_brnch++){
       WorldAction wa = this->createRandomWorldAction(nmbr_strs, nmbr_prdcts, this->depth_/2,time_frm, demand_range, demand_min, cmltv_demand_prb_dstrbutn);
-      Node* chld_nd = new MyTurn(this, this->depth_ + 1);
+      MyTurn* chld_nd = new MyTurn(this, this->depth_ + 1);
       children.push_back(std::pair<WorldAction, Node*>(wa, chld_nd));
-      // chld_nd->expand3re
+      // chld_nd->expand();
     }
 
 }
@@ -290,13 +290,13 @@ const std::vector< std::vector<int32_t> > &crnt_total_demand ){
   }
   return my_actn;
 }
-void MyTurn::expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
-  int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min)  {
+// void MyTurn::expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
+//   int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min)  {
 
-  std::vector< std::vector<int32_t> > crnt_total_demand(nmbr_strs, std::vector<int>(nmbr_prdcts, 0));
-  this->findCurrentTotalDmnd(crnt_total_demand, this);
+//   std::vector< std::vector<int32_t> > crnt_total_demand(nmbr_strs, std::vector<int>(nmbr_prdcts, 0));
+//   this->findCurrentTotalDmnd(crnt_total_demand, this);
 
-}
+// }
 
 
 MonteCarloTreeSearchCpp::MonteCarloTreeSearchCpp(int demand_min,int demand_max,int nmbr_strs,int nmbr_prdcts,int time_frm,int DC_cpcty,int truck_capacity,
@@ -367,12 +367,10 @@ MonteCarloTreeSearchCpp::MonteCarloTreeSearchCpp(int demand_min,int demand_max,i
 }
 
 
-void MonteCarloTreeSearchCpp::operator () (int number_of_iterations){
-  while(number_of_iterations--){
-    Node* node = treeRoot->select(this->exploration_factor_);
+void MonteCarloTreeSearchCpp::MainLoop () {
+    WorldTurn* node = static_cast<WorldTurn* >(treeRoot->select(this->exploration_factor_));
     node->expand( this->nmbr_brnch_wrldTurn_, this->nmbr_brnch_myTurn_, this->wareHouseState_,this->cmltv_demand_prb_dstrbutn_, this->nmbr_strs_, 
       this->nmbr_prdcts_, this->time_frm_, this->demand_range_, this->demand_min_ );
-  }
 }
 
 
@@ -381,5 +379,6 @@ PYBIND11_MODULE(PyMCTS, module_handle) {
   py::class_<MonteCarloTreeSearchCpp>(
 			module_handle, "MonteCarloTreeSearch"
 			).def(py::init<int,int,int,int,int,int,int,int,int,int,int,float,py::array_t<int32_t> , py::array_t<float> >())
+      .def("__call__", &MonteCarloTreeSearchCpp::MainLoop)
     ;
 }
