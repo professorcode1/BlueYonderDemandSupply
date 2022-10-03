@@ -12,6 +12,12 @@ float Node::fitness(int parent_smls, float exploration_factor){
   if(std::isnan(explore)){
     throw std::runtime_error("explore is nan");
   }
+  if(std::isinf(exploit)){
+    throw std::runtime_error("exploit is inf");
+  }
+  if(std::isinf(explore)){
+    throw std::runtime_error("explote is inf");
+  }
   return exploit + explore;
 }
 float Node::evaluate(const std::vector<std::vector<int> > &crnt_total_demand, const std::vector<std::vector<int> > &oval_total_demand, 
@@ -36,6 +42,11 @@ float Node::evaluate(const std::vector<std::vector<int> > &crnt_total_demand, co
     std::cout<<"obs_throughput :: " <<obs_throughput<< "\tmax_throughput :: "<<max_throughput<<std::endl;
     std::cout<<"obs_truck_utilisation :: "<<obs_truck_utilisation<< "\tmax_truck_utilisation :: "<<max_truck_utilisation<<std::endl;
     throw std::runtime_error("Simulation evaluation is nan");
+  }
+  if(std::isinf(fitness)){
+    std::cout<<"obs_throughput :: " <<obs_throughput<< "\tmax_throughput :: "<<max_throughput<<std::endl;
+    std::cout<<"obs_truck_utilisation :: "<<obs_truck_utilisation<< "\tmax_truck_utilisation :: "<<max_truck_utilisation<<std::endl;
+    throw std::runtime_error("Simulation evaluation is inf");
   }
   return fitness;
 
@@ -198,7 +209,7 @@ void WorldTurn::simulate(const std::vector<int> &wareHouseState, const std::vect
       current_depth += 2;
     }
 
-    float fitness = this->evaluate(crnt_total_demand, oval_total_demand, unfilled_trucks_usage, truck_capacity, trk_thrpt_rti_cnst);
+    float fitness = this->evaluate(sim_crnt_total_demand, sim_oval_total_demand, sim_unfilled_trucks_usage, truck_capacity, trk_thrpt_rti_cnst);
     this->backpropagate(fitness);
 
   }
