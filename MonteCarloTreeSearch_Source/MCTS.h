@@ -94,7 +94,6 @@ protected:
   int nmbr_simls_;
   int depth_;
   virtual bool IamLeaf() = 0;
-  // virtual float simulate() = 0;
   // virtual void backpropagate() = 0;
   Node(Node* parent, int depth): parent_{parent}, success_{0}, nmbr_simls_{0}, depth_{depth} {};
 public:
@@ -104,42 +103,52 @@ public:
   virtual Node* select( float exploration_factor ) = 0;
   virtual void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* chld_node) = 0;
   virtual void findCurrentTotalDmnd(std::vector<std::vector<int> > &crnt_total_demand, Node* chld_node) = 0;
-  // virtual void expand(  int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
-  //   int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min) = 0;
+  virtual void findOverAllTotalDmnd(std::vector<std::vector<int> > &oval_total_demand, Node* chld_node) = 0;
+  virtual void findUnFldTruckUsages(std::vector<int> &usage, Node* chld_node, int truck_capacity) = 0; 
+
+
+  static WorldAction createRandomWorldAction(int nmbr_strs, int nmbr_prdcts, int time,int time_frm, int demand_range,int demand_min, const std::vector<float> &cmltv_demand_prb_dstrbutn);
+  static void createRandomMyActionSubRoutine_GenerateTuckingForStore(const std::vector<bool> &willLastTruckBeSent, const std::vector<bool> &semiFilledTruckNeeded, int nmbr_prdcts_to_send, const int truck_capacity, const int nmbr_prdcts, std::vector<int> &send_to_store, MyAction &my_actn, const int store);
+  static int createRandomMyActionSubRoutine_LiabilityTrkVc(std::vector<bool> &willLastTruckBeSent, const std::vector<int> &total_product_store, int nmbr_strs, int truck_capacity );
+  static MyAction createRandomMyAction(int truck_capacity, int factory_production_limit, int DC_cpcty, const std::vector<int> &wareHouseState, const std::vector< std::vector<int32_t> > &crnt_total_demand);
 };
 
 class WorldTurn: public Node{
 private:
-  std::list<std::pair<WorldAction, Node*> > children;
+  std::list<std::pair<WorldAction, MyTurn*> > children;
 
-  static WorldAction createRandomWorldAction(int nmbr_strs, int nmbr_prdcts, int time,int time_frm, int demand_range,int demand_min, const std::vector<float> &cmltv_demand_prb_dstrbutn);
 
   bool IamLeaf() override;
   void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* chld_node) override;
   void findCurrentTotalDmnd(std::vector<std::vector<int> > &crnt_total_demand, Node* chld_node) override;
+  void findOverAllTotalDmnd(std::vector<std::vector<int> > &oval_total_demand, Node* chld_node) override;
+  void findUnFldTruckUsages(std::vector<int> &usage, Node* chld_node, int truck_capacity) override;
+
 public:
   WorldTurn(Node* parent, int depth):Node{parent, depth} {};
+  ~WorldTurn();
   Node* select(float exploration_factor) override ;
-  void expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
-    int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min) ;
+  void expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min, int truck_capacity, int factory_production_limit, int DC_cpcty) ;
+  void simulate(const std::vector<int> &wareHouseState, const std::vector<std::vector<int> > &crnt_total_demand, int truck_capacity,
+  int nmbr_simulations_per_rollout, int time_frm, int factory_production_limit , int DC_cpcty, int demand_range, int demand_min, 
+  const std::vector<float> &cmltv_demand_prb_dstrbutn ) ;
 };
 
 class MyTurn : public Node{
 private:
-  std::list<std::pair<MyAction, Node*> > children;
-
-
-  static void createRandomMyActionSubRoutine_GenerateTuckingForStore(const std::vector<bool> &willLastTruckBeSent, const std::vector<bool> &semiFilledTruckNeeded, int nmbr_prdcts_to_send, const int truck_capacity, const int nmbr_prdcts, std::vector<int> &send_to_store, MyAction &my_actn, const int store);
-  static int createRandomMyActionSubRoutine_LiabilityTrkVc(std::vector<bool> &willLastTruckBeSent, const std::vector<int> &total_product_store, int nmbr_strs, int truck_capacity );
-  static MyAction createRandomMyAction(int truck_capacity, int factory_production_limit, int DC_cpcty, const std::vector<int> &wareHouseState, const std::vector< std::vector<int32_t> > &crnt_total_demand);
+  std::list<std::pair<MyAction, WorldTurn*> > children;
 
   bool IamLeaf() override ; 
   void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* chld_node) override ;
   void findCurrentTotalDmnd(std::vector<std::vector<int> > &crnt_total_demand, Node* chld_node) override;
-
+  void findOverAllTotalDmnd(std::vector<std::vector<int> > &oval_total_demand, Node* chld_node) override;
+  void findUnFldTruckUsages(std::vector<int> &usage, Node* chld_node, int truck_capacity) override;
+  
 public:
   MyTurn(Node* parent, int depth):Node{parent, depth} {};
+  ~MyTurn();
   Node* select(float exploration_factor) override ;
+  void expand(const std::vector<int> &wareHouseState, const std::vector<std::vector<int> > &crnt_total_demand, int nmbr_brnch_myTurn, int truck_capacity, int factory_production_limit, int DC_cpcty );
 };
 
 class MonteCarloTreeSearchCpp {
@@ -166,6 +175,7 @@ public:
   MonteCarloTreeSearchCpp(int demand_min,int demand_max,int nmbr_strs,int nmbr_prdcts,int time_frm,int DC_cpcty,int truck_capacity,
   int factory_production_limit_, int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn,int nmbr_simulations_per_rollout,  float exploration_factor,
    py::array_t<int32_t> wareHouseStatePy, py::array_t<float> demand_prb_dstrbutnPy) ;
+   ~MonteCarloTreeSearchCpp();
 
 
   void MainLoop();

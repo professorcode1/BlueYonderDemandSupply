@@ -1,11 +1,18 @@
 #include "MCTS.h"
 
 float Node::fitness(int parent_smls, float exploration_factor){
-    float exploit = success_ / nmbr_simls_;
-    float explore = exploration_factor * sqrt(log(parent_smls) / this->nmbr_simls_);
-    return exploit + explore;
+  if(nmbr_simls_ == 0)
+    // return std::numeric_limits<float>::max();
+    throw std::runtime_error("Zero simulations but fitness evaluated");
+  float exploit = success_ / nmbr_simls_;
+  float explore = exploration_factor * sqrt(log(parent_smls) / this->nmbr_simls_);
+  return exploit + explore;
 }
 
+WorldTurn::~WorldTurn(){
+  for(auto &child : this->children)
+    delete child.second;
+}
 bool WorldTurn::IamLeaf() {
   return children.empty();
 }
@@ -35,6 +42,30 @@ void WorldTurn::findCurrentTotalDmnd(std::vector< std::vector<int> > &crnt_total
       break;
     }
   }
+  if(this->parent_){
+    this->parent_->findCurrentTotalDmnd(crnt_total_demand, this);
+  }
+}
+void WorldTurn::findOverAllTotalDmnd(std::vector< std::vector<int> > &oval_total_demand, Node* chld_node){
+  for(const auto child : this->children){
+    if(child.second == chld_node){
+      
+      int nmbr_strs = oval_total_demand.size();
+      for(int store = 0; store < nmbr_strs ; store++){
+        std::transform(oval_total_demand[store].begin(), oval_total_demand[store].end(), child.first.demand[store].begin(), oval_total_demand[store].begin(), std::plus<int>{});
+      }
+      
+      break;
+    }
+  }
+  if(this->parent_){
+    this->parent_->findCurrentTotalDmnd(oval_total_demand, this);
+  }
+}
+void WorldTurn::findUnFldTruckUsages(std::vector<int> &usage, Node* chld_node, int truck_capacity) {
+  if(this->parent_){
+    this->parent_->findUnFldTruckUsages(usage, this, truck_capacity);
+  }
 }
 Node* WorldTurn::select(float exploration_factor)  {
   if(this->IamLeaf())
@@ -46,11 +77,11 @@ Node* WorldTurn::select(float exploration_factor)  {
   success. Its not, its doing it probabalistically. The children are already creating probabalistically
   so exploring them will be random.  
   ***/
-  std::list<std::pair<WorldAction, Node*> >::iterator data_ = children.begin();
+  std::list<std::pair<WorldAction, MyTurn*> >::iterator data_ = children.begin();
   advance(data_, indexOfNodeToExplore);
   return data_->second->select(exploration_factor); 
 }
-WorldAction WorldTurn::createRandomWorldAction(int nmbr_strs, int nmbr_prdcts,int time, int time_frm, int demand_range,int demand_min, const std::vector<float> &cmltv_demand_prb_dstrbutn){
+WorldAction Node::createRandomWorldAction(int nmbr_strs, int nmbr_prdcts,int time, int time_frm, int demand_range,int demand_min, const std::vector<float> &cmltv_demand_prb_dstrbutn){
   WorldAction wa(nmbr_strs, nmbr_prdcts);
   for(int store = 0 ; store < nmbr_strs ; store++){
     for(int product = 0 ; product < nmbr_prdcts ; product++){
@@ -62,7 +93,7 @@ WorldAction WorldTurn::createRandomWorldAction(int nmbr_strs, int nmbr_prdcts,in
   return wa;
 }  
 void WorldTurn::expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn, 
-  int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min)  {
+  int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min, int truck_capacity, int factory_production_limit, int DC_cpcty)  {
     /***
         The expand function  just create nmbr_brnch_wrldTurn simulation, with the probability of each simulation same as in the 
         demand probability distribution.
@@ -70,20 +101,59 @@ void WorldTurn::expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vec
         Like always make sure that very low demand and very high demands are simulated
         Or like divide the demand range into buckets and make sure each bucket has one representative.
     ***/
+    std::vector<std::vector<int> > crnt_total_demand(nmbr_strs, std::vector<int>(nmbr_prdcts, 0));
     if(this->parent_){
       this->parent_->findWarehouseState(wareHouseState, this);
+      this->parent_->findCurrentTotalDmnd(crnt_total_demand, this);
     }
     for(int iter_brnch = 0 ; iter_brnch < nmbr_brnch_wrldTurn ; iter_brnch++){
       WorldAction wa = this->createRandomWorldAction(nmbr_strs, nmbr_prdcts, this->depth_/2,time_frm, demand_range, demand_min, cmltv_demand_prb_dstrbutn);
       MyTurn* chld_nd = new MyTurn(this, this->depth_ + 1);
-      children.push_back(std::pair<WorldAction, Node*>(wa, chld_nd));
-      // chld_nd->expand();
+      children.push_back(std::pair<WorldAction, MyTurn*>(wa, chld_nd));
+      
+      int nmbr_strs = crnt_total_demand.size();
+      for(int store = 0; store < nmbr_strs ; store++){
+        std::transform(crnt_total_demand[store].begin(), crnt_total_demand[store].end(), wa.demand[store].begin(), crnt_total_demand[store].begin(), std::plus<int>{});
+      }
+      chld_nd->expand(wareHouseState, crnt_total_demand, nmbr_brnch_myTurn, truck_capacity, factory_production_limit, DC_cpcty);
+      for(int store = 0; store < nmbr_strs ; store++){
+        std::transform(crnt_total_demand[store].begin(), crnt_total_demand[store].end(), wa.demand[store].begin(), crnt_total_demand[store].begin(), std::minus<int>{});
+      }
     }
 
 }
+void WorldTurn::simulate(const std::vector<int> &wareHouseState, const std::vector<std::vector<int> > &crnt_total_demand, int truck_capacity,
+  int nmbr_simulations_per_rollout, int time_frm,int factory_production_limit , int DC_cpcty, int demand_range, int demand_min, 
+  const std::vector<float> &cmltv_demand_prb_dstrbutn ){
+  int nmbr_strs = crnt_total_demand.size();
+  int nmbr_prdcts = crnt_total_demand[0].size();
+  std::vector<int> unfilled_trucks_usage;
+  std::vector<std::vector< int> > oval_total_demand(nmbr_strs, std::vector<int>(nmbr_prdcts, 0));
+  this->findUnFldTruckUsages(unfilled_trucks_usage, this, truck_capacity);
+  this->findOverAllTotalDmnd(oval_total_demand, this);
+  for(int simulation_iter = 0 ; simulation_iter < nmbr_simulations_per_rollout ; simulation_iter++){
+    int current_depth = this->depth_;
+    std::vector<std::vector<int> > sim_crnt_total_demand = crnt_total_demand;
+    std::vector<std::vector<int> > sim_oval_total_demand = oval_total_demand;
+    std::vector<int> sim_unfilled_trucks_usage = unfilled_trucks_usage;
+    std::vector<int> sim_wareHouseState = wareHouseState;
 
+    while(current_depth < 2 * time_frm){
+      MyAction my_actn = this->createRandomMyAction(truck_capacity, factory_production_limit, DC_cpcty, sim_wareHouseState, sim_crnt_total_demand );
+      WorldAction wrld_actn = this->createRandomWorldAction(nmbr_strs, nmbr_prdcts, current_depth / 2, time_frm, demand_range, demand_min, cmltv_demand_prb_dstrbutn);
+      
+      
 
+      current_depth += 2;
+    }
 
+  }
+}
+
+MyTurn::~MyTurn(){
+  for(auto &child: this->children)
+    delete child.second;
+}
 bool MyTurn::IamLeaf() {
   return children.empty();
 }
@@ -118,6 +188,26 @@ void MyTurn::findCurrentTotalDmnd(std::vector< std::vector<int> > &crnt_total_de
   }
   this->parent_->findCurrentTotalDmnd(crnt_total_demand, this);
 }
+void MyTurn::findOverAllTotalDmnd(std::vector< std::vector<int> > &oval_total_demand, Node* chld_node){
+  this->parent_->findCurrentTotalDmnd(oval_total_demand, this);
+}
+void MyTurn::findUnFldTruckUsages(std::vector<int> &usage, Node* chld_node, int truck_capacity){
+  for(const auto child : this->children){
+    if(child.second == chld_node){
+      // int nmbr_strs = crnt_total_demand.size();
+
+      for(const auto truck: child.first.trucks){
+        int usage_val = std::accumulate(truck.second.begin(), truck.second.end(), 0);
+        if( usage_val != truck_capacity){
+          usage.push_back(usage_val);
+        }
+      }
+
+      break;
+    }
+  }
+  this->parent_->findUnFldTruckUsages(usage, this, truck_capacity);
+}
 Node* MyTurn::select(float exploration_factor)  {
     if(this->IamLeaf()){
         throw std::runtime_error("A MyTurn Node is a leaf node");
@@ -133,7 +223,7 @@ Node* MyTurn::select(float exploration_factor)  {
     }
     return fitest_chld->select(exploration_factor);
 }
-void MyTurn::createRandomMyActionSubRoutine_GenerateTuckingForStore(const std::vector<bool> &willLastTruckBeSent, 
+void Node::createRandomMyActionSubRoutine_GenerateTuckingForStore(const std::vector<bool> &willLastTruckBeSent, 
   const std::vector<bool> &semiFilledTruckNeeded, int nmbr_prdcts_to_send, const int truck_capacity, const int nmbr_prdcts, std::vector<int> &send_to_store,
   MyAction &my_actn, const int store){
   if( (! willLastTruckBeSent[store]) && semiFilledTruckNeeded[store]){
@@ -176,7 +266,7 @@ void MyTurn::createRandomMyActionSubRoutine_GenerateTuckingForStore(const std::v
     }
   }
 }
-int MyTurn::createRandomMyActionSubRoutine_LiabilityTrkVc(std::vector<bool> &willLastTruckBeSent, const std::vector<int> &total_product_store,
+int Node::createRandomMyActionSubRoutine_LiabilityTrkVc(std::vector<bool> &willLastTruckBeSent, const std::vector<int> &total_product_store,
   int nmbr_strs, int truck_capacity ){
   int ignored_product = 0;
   //given a willLastTruckBeSent, randomly drop the once which are being sent (i.e evaluates random bool if willLastTruckBeSent is true)
@@ -187,7 +277,7 @@ int MyTurn::createRandomMyActionSubRoutine_LiabilityTrkVc(std::vector<bool> &wil
   }
   return ignored_product;
 }
-MyAction MyTurn::createRandomMyAction(int truck_capacity, int factory_production_limit, int DC_cpcty, const std::vector<int> &wareHouseState, 
+MyAction Node::createRandomMyAction(int truck_capacity, int factory_production_limit, int DC_cpcty, const std::vector<int> &wareHouseState, 
 const std::vector< std::vector<int32_t> > &crnt_total_demand ){
     /***
         Steps
@@ -239,7 +329,7 @@ const std::vector< std::vector<int32_t> > &crnt_total_demand ){
     //5
     if( total_fctry_gnrt_demand > factory_production_limit ){
       int dropped_truk_val = 0;
-      while( dropped_truk_val < ( factory_production_limit - total_fctry_gnrt_demand ) ){
+      while( dropped_truk_val < ( total_fctry_gnrt_demand - factory_production_limit ) ){
         int drpd_str = get_rndm_int(0, nmbr_strs);
         if(willLastTruckBeSent[drpd_str]){
           willLastTruckBeSent[drpd_str] = false;
@@ -290,15 +380,16 @@ const std::vector< std::vector<int32_t> > &crnt_total_demand ){
   }
   return my_actn;
 }
-// void MyTurn::expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
-//   int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min)  {
+void MyTurn::expand(const std::vector<int> &wareHouseState, const std::vector<std::vector<int> > &crnt_total_demand, int nmbr_brnch_myTurn, int truck_capacity,
+int factory_production_limit, int DC_cpcty ){
 
-//   std::vector< std::vector<int32_t> > crnt_total_demand(nmbr_strs, std::vector<int>(nmbr_prdcts, 0));
-//   this->findCurrentTotalDmnd(crnt_total_demand, this);
+  for(int iter_brnch = 0 ; iter_brnch < nmbr_brnch_myTurn ; iter_brnch++){
+    MyAction ma = this->createRandomMyAction(truck_capacity, factory_production_limit, DC_cpcty, wareHouseState, crnt_total_demand);
+    WorldTurn *chld_nd = new WorldTurn(this, this->depth_ + 1);
+    children.push_back(std::pair<MyAction, WorldTurn*>(ma, chld_nd));
+  }
 
-// }
-
-
+}
 MonteCarloTreeSearchCpp::MonteCarloTreeSearchCpp(int demand_min,int demand_max,int nmbr_strs,int nmbr_prdcts,int time_frm,int DC_cpcty,int truck_capacity,
   int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn,int nmbr_simulations_per_rollout, int factory_production_limit,float exploration_factor,
    py::array_t<int32_t> wareHouseStatePy, py::array_t<float> demand_prb_dstrbutnPy) : 
@@ -366,11 +457,14 @@ MonteCarloTreeSearchCpp::MonteCarloTreeSearchCpp(int demand_min,int demand_max,i
     
 }
 
-
+MonteCarloTreeSearchCpp::~MonteCarloTreeSearchCpp(){
+  delete this->treeRoot;
+}
 void MonteCarloTreeSearchCpp::MainLoop () {
     WorldTurn* node = static_cast<WorldTurn* >(treeRoot->select(this->exploration_factor_));
     node->expand( this->nmbr_brnch_wrldTurn_, this->nmbr_brnch_myTurn_, this->wareHouseState_,this->cmltv_demand_prb_dstrbutn_, this->nmbr_strs_, 
-      this->nmbr_prdcts_, this->time_frm_, this->demand_range_, this->demand_min_ );
+      this->nmbr_prdcts_, this->time_frm_, this->demand_range_, this->demand_min_ , this->truck_capacity_, this->factory_production_limit_, 
+      this->DC_cpcty_);
 }
 
 
