@@ -82,6 +82,7 @@ std::vector<int32_t> BeggarsAlgorithm(int n, int r){
 struct WorldAction{
   std::vector < std::vector < int > > demand; // [store->[proudct -> demand]]
   WorldAction(int nmbr_strs, int nmbr_prdcts) :demand(nmbr_strs, std::vector<int>(nmbr_prdcts)) {};
+  WorldAction(const std::vector<std::vector<int> > &data_) : demand(data_){}; 
 };
 struct MyAction{
   std::vector < std::pair< int, std::vector < int > > > trucks; //[truck->(store, [ product_id -> amount ])] 
@@ -126,6 +127,10 @@ private:
   void findOverAllTotalDmnd(std::vector<std::vector<int> > &oval_total_demand, Node* chld_node) override;
   void findUnFldTruckUsages(std::vector<int> &usage, Node* chld_node, int truck_capacity) override;
 
+  void addWorldActionToChildren(WorldAction &wrld_actn, std::vector<std::vector<int> > &crnt_total_demand, std::vector<int32_t> &wareHouseState, int nmbr_brnch_myTurn,
+    int truck_capacity, int factory_production_limit, int DC_cpcty, int nmbr_simulations_per_rollout, int time_frm, int demand_range, int demand_min, float trk_thrpt_rti_cnst, 
+    const std::vector<float> &cmltv_demand_prb_dstrbutn);
+
 public:
   WorldTurn(Node* parent, int depth):Node{parent, depth} {};
   ~WorldTurn();
@@ -136,6 +141,9 @@ public:
   void simulate(const std::vector<int> &wareHouseState, const std::vector<std::vector<int> > &crnt_total_demand, int truck_capacity,
     int nmbr_simulations_per_rollout, int time_frm, int factory_production_limit , int DC_cpcty, int demand_range, int demand_min, 
     float trk_thrpt_rti_cnst, const std::vector<float> &cmltv_demand_prb_dstrbutn ) ;
+  void generate_all_children(int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
+    int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min, int truck_capacity, int factory_production_limit, int DC_cpcty,
+    int nmbr_simulations_per_rollout,float trk_thrpt_rti_cnst, const std::vector<float> &demand_prb_dstrbutn_);
 };
 
 class MyTurn : public Node{
