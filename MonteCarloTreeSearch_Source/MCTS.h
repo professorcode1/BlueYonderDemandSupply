@@ -94,11 +94,11 @@ protected:
   int nmbr_simls_;
   int depth_;
   virtual bool IamLeaf() = 0;
-  // virtual void backpropagate() = 0;
   Node(Node* parent, int depth): parent_{parent}, success_{0}, nmbr_simls_{0}, depth_{depth} {};
 public:
 
   float fitness(int parent_smls, float exploration_factor);
+  void backpropagate(float fitness);
 
   virtual Node* select( float exploration_factor ) = 0;
   virtual void findWarehouseState(std::vector<int32_t> &wareHouseState, Node* chld_node) = 0;
@@ -111,6 +111,8 @@ public:
   static void createRandomMyActionSubRoutine_GenerateTuckingForStore(const std::vector<bool> &willLastTruckBeSent, const std::vector<bool> &semiFilledTruckNeeded, int nmbr_prdcts_to_send, const int truck_capacity, const int nmbr_prdcts, std::vector<int> &send_to_store, MyAction &my_actn, const int store);
   static int createRandomMyActionSubRoutine_LiabilityTrkVc(std::vector<bool> &willLastTruckBeSent, const std::vector<int> &total_product_store, int nmbr_strs, int truck_capacity );
   static MyAction createRandomMyAction(int truck_capacity, int factory_production_limit, int DC_cpcty, const std::vector<int> &wareHouseState, const std::vector< std::vector<int32_t> > &crnt_total_demand);
+  static float evaluate(const std::vector<std::vector<int> > &crnt_total_demand, const std::vector<std::vector<int> > &oval_total_demand, 
+    const std::vector<int> &unfilled_trucks_usage, int truck_capacity, const float trk_thrpt_rti_cnst);
 };
 
 class WorldTurn: public Node{
@@ -128,10 +130,12 @@ public:
   WorldTurn(Node* parent, int depth):Node{parent, depth} {};
   ~WorldTurn();
   Node* select(float exploration_factor) override ;
-  void expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min, int truck_capacity, int factory_production_limit, int DC_cpcty) ;
+  void expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
+    int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min, int truck_capacity, int factory_production_limit, int DC_cpcty,
+    int nmbr_simulations_per_rollout,float trk_thrpt_rti_cnst) ;
   void simulate(const std::vector<int> &wareHouseState, const std::vector<std::vector<int> > &crnt_total_demand, int truck_capacity,
-  int nmbr_simulations_per_rollout, int time_frm, int factory_production_limit , int DC_cpcty, int demand_range, int demand_min, 
-  const std::vector<float> &cmltv_demand_prb_dstrbutn ) ;
+    int nmbr_simulations_per_rollout, int time_frm, int factory_production_limit , int DC_cpcty, int demand_range, int demand_min, 
+    float trk_thrpt_rti_cnst, const std::vector<float> &cmltv_demand_prb_dstrbutn ) ;
 };
 
 class MyTurn : public Node{
@@ -148,7 +152,9 @@ public:
   MyTurn(Node* parent, int depth):Node{parent, depth} {};
   ~MyTurn();
   Node* select(float exploration_factor) override ;
-  void expand(const std::vector<int> &wareHouseState, const std::vector<std::vector<int> > &crnt_total_demand, int nmbr_brnch_myTurn, int truck_capacity, int factory_production_limit, int DC_cpcty );
+  void expand(const std::vector<int> &wareHouseState, const std::vector<std::vector<int> > &crnt_total_demand, int nmbr_brnch_myTurn, 
+    int truck_capacity, int factory_production_limit, int DC_cpcty, int nmbr_simulations_per_rollout, int time_frm, int demand_range, int demand_min,
+    float trk_thrpt_rti_cnst, const std::vector<float> &cmltv_demand_prb_dstrbutn);
 };
 
 class MonteCarloTreeSearchCpp {
@@ -167,6 +173,7 @@ private:
   int nmbr_brnch_myTurn_;
   int nmbr_simulations_per_rollout_;
   float exploration_factor_;
+  float trk_thrpt_rti_cnst_;
   std::vector<int32_t> wareHouseState_;
   std::vector<float> demand_prb_dstrbutn_;
   std::vector<float> cmltv_demand_prb_dstrbutn_;
@@ -174,7 +181,7 @@ private:
 public:
   MonteCarloTreeSearchCpp(int demand_min,int demand_max,int nmbr_strs,int nmbr_prdcts,int time_frm,int DC_cpcty,int truck_capacity,
   int factory_production_limit_, int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn,int nmbr_simulations_per_rollout,  float exploration_factor,
-   py::array_t<int32_t> wareHouseStatePy, py::array_t<float> demand_prb_dstrbutnPy) ;
+   float trk_thrpt_rti_cnst,  py::array_t<int32_t> wareHouseStatePy, py::array_t<float> demand_prb_dstrbutnPy) ;
    ~MonteCarloTreeSearchCpp();
 
 

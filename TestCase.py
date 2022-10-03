@@ -107,9 +107,11 @@ class TestCase:
         total = np.sum(data[:,:,:,0])
         cumm_dmnd_ = self.timeframe * demand_per_day_average
         data[:, :, :, 0] *= cumm_dmnd_ / total 
-        clipps_required = np.sum(np.logical_or(data[:,:,:,0] <= self.demand_range_min, data[:,:,:,0] > self.demand_range_max))
+        lower_clips = np.sum(data[:,:,:,0] <= self.demand_range_min)
+        upper_clips = np.sum(data[:,:,:,0] > self.demand_range_max)
+        clipps_required = lower_clips + upper_clips
         total_size = self.number_of_stores * self.number_of_products * self.timeframe
-        print(f"clipping {clipps_required} out of {total_size} values")
+        print(f"clipping {clipps_required}({lower_clips},{upper_clips}) out of {total_size} values")
         if not suppress_error:
             assert clipps_required <  0.05 * total_size, "DC Capacity is either way too low or way to high for this system to ever work, if you belive this is false (unlikely) decrease simplex_reduction_factor , or set suppress_error to true"
         data = data.clip(self.demand_range_min, self.demand_range_max)

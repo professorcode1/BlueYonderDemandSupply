@@ -6,9 +6,47 @@ float Node::fitness(int parent_smls, float exploration_factor){
     throw std::runtime_error("Zero simulations but fitness evaluated");
   float exploit = success_ / nmbr_simls_;
   float explore = exploration_factor * sqrt(log(parent_smls) / this->nmbr_simls_);
+  if(std::isnan(exploit)){
+    throw std::runtime_error("exploit is nan");
+  }
+  if(std::isnan(explore)){
+    throw std::runtime_error("explore is nan");
+  }
   return exploit + explore;
 }
+float Node::evaluate(const std::vector<std::vector<int> > &crnt_total_demand, const std::vector<std::vector<int> > &oval_total_demand, 
+  const std::vector<int> &unfilled_trucks_usage,int truck_capacity, const float trk_thrpt_rti_cnst){
+  std::function<int(int, std::vector<int> )> vec_reduce = [](int total, const std::vector<int> &vec){
+    return total + std::accumulate(vec.begin(), vec.end(), 0);
+  };
+  float obs_throughput     = std::accumulate(crnt_total_demand.begin(), crnt_total_demand.end(), 0, vec_reduce);
+  float max_throughput = std::accumulate(oval_total_demand.begin(), oval_total_demand.end(), 0, vec_reduce);
+  float throughput = obs_throughput / max_throughput;
 
+  float obs_truck_utilisation = std::accumulate(unfilled_trucks_usage.begin(), unfilled_trucks_usage.end(),0, std::plus<int>{});
+  float max_truck_utilisation = unfilled_trucks_usage.size() * (truck_capacity - 1);
+  float truck_utilisation = obs_truck_utilisation / max_truck_utilisation;
+
+  if(unfilled_trucks_usage.empty()){
+    truck_utilisation = 1;
+  }
+
+  float fitness = ( throughput + ( trk_thrpt_rti_cnst * truck_utilisation ) )/ ( 1 + trk_thrpt_rti_cnst );
+  if(std::isnan(fitness)){
+    std::cout<<"obs_throughput :: " <<obs_throughput<< "\tmax_throughput :: "<<max_throughput<<std::endl;
+    std::cout<<"obs_truck_utilisation :: "<<obs_truck_utilisation<< "\tmax_truck_utilisation :: "<<max_truck_utilisation<<std::endl;
+    throw std::runtime_error("Simulation evaluation is nan");
+  }
+  return fitness;
+
+}
+void Node::backpropagate(float fitness){
+  this->success_ += fitness;
+  this->nmbr_simls_ ++;
+  if(this->parent_){
+    this->parent_->backpropagate(fitness);
+  }
+}
 WorldTurn::~WorldTurn(){
   for(auto &child : this->children)
     delete child.second;
@@ -17,15 +55,6 @@ bool WorldTurn::IamLeaf() {
   return children.empty();
 }
 void WorldTurn::findWarehouseState(std::vector<int32_t> &wareHouseState, Node* chld_node)  {
-  
-  // for(const auto child : children){
-  //   if(child.second == node){
-  //     for(const auto store: child.first.demand){
-  //       std::transform(wareHouseState.begin(), wareHouseState.end(), store.begin(), wareHouseState.begin(), std::plus<int>{});
-  //     }
-  //   }
-  // }
-  //damn bad logic above, the world just puts a demand, it doesn't do anything to the warehouse 
   if(this->parent_){
     this->parent_->findWarehouseState(wareHouseState, this);
   }
@@ -36,7 +65,7 @@ void WorldTurn::findCurrentTotalDmnd(std::vector< std::vector<int> > &crnt_total
       
       int nmbr_strs = crnt_total_demand.size();
       for(int store = 0; store < nmbr_strs ; store++){
-        std::transform(crnt_total_demand[store].begin(), crnt_total_demand[store].end(), child.first.demand[store].begin(), crnt_total_demand[store].begin(), std::plus<int>{});
+        std::transform(crnt_total_demand.at(store).begin(), crnt_total_demand.at(store).end(), child.first.demand.at(store).begin(), crnt_total_demand.at(store).begin(), std::plus<int>{});
       }
       
       break;
@@ -52,7 +81,7 @@ void WorldTurn::findOverAllTotalDmnd(std::vector< std::vector<int> > &oval_total
       
       int nmbr_strs = oval_total_demand.size();
       for(int store = 0; store < nmbr_strs ; store++){
-        std::transform(oval_total_demand[store].begin(), oval_total_demand[store].end(), child.first.demand[store].begin(), oval_total_demand[store].begin(), std::plus<int>{});
+        std::transform(oval_total_demand.at(store).begin(), oval_total_demand.at(store).end(), child.first.demand.at(store).begin(), oval_total_demand.at(store).begin(), std::plus<int>{});
       }
       
       break;
@@ -70,7 +99,7 @@ void WorldTurn::findUnFldTruckUsages(std::vector<int> &usage, Node* chld_node, i
 Node* WorldTurn::select(float exploration_factor)  {
   if(this->IamLeaf())
     return this;
-  int indexOfNodeToExplore = static_cast<int>(rndm_nmbr_gnrt() % children.size());
+  int indexOfNodeToExplore = get_rndm_int(0, children.size()) ;
   /***
   Since a Monte Carlo Tree Simulation is used for advesarial games and reinforcement learning, 
   Not making this step random would imply the universe is creating demand in a way that minimises my
@@ -87,13 +116,14 @@ WorldAction Node::createRandomWorldAction(int nmbr_strs, int nmbr_prdcts,int tim
     for(int product = 0 ; product < nmbr_prdcts ; product++){
       float rndm_nmbr_nrml = get_rndm_nmbr_nrml();
       int data_indx = rowMajor4D(store, product, time, 0, nmbr_strs, nmbr_prdcts, time_frm, demand_range);
-      wa.demand[store][product] = demand_min + binarySearchFirstLargerIndex<float>(cmltv_demand_prb_dstrbutn, rndm_nmbr_nrml, data_indx, data_indx + demand_range);
+      wa.demand.at(store).at(product) = demand_min + binarySearchFirstLargerIndex<float>(cmltv_demand_prb_dstrbutn, rndm_nmbr_nrml, data_indx, data_indx + demand_range);
     }
   }
   return wa;
 }  
 void WorldTurn::expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn, 
-  int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min, int truck_capacity, int factory_production_limit, int DC_cpcty)  {
+  int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min, int truck_capacity, int factory_production_limit, int DC_cpcty,
+  int nmbr_simulations_per_rollout,float trk_thrpt_rti_cnst)  {
     /***
         The expand function  just create nmbr_brnch_wrldTurn simulation, with the probability of each simulation same as in the 
         demand probability distribution.
@@ -113,20 +143,22 @@ void WorldTurn::expand( int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vec
       
       int nmbr_strs = crnt_total_demand.size();
       for(int store = 0; store < nmbr_strs ; store++){
-        std::transform(crnt_total_demand[store].begin(), crnt_total_demand[store].end(), wa.demand[store].begin(), crnt_total_demand[store].begin(), std::plus<int>{});
+        std::transform(crnt_total_demand.at(store).begin(), crnt_total_demand.at(store).end(), wa.demand.at(store).begin(), crnt_total_demand.at(store).begin(), std::plus<int>{});
       }
-      chld_nd->expand(wareHouseState, crnt_total_demand, nmbr_brnch_myTurn, truck_capacity, factory_production_limit, DC_cpcty);
+      chld_nd->expand(wareHouseState, crnt_total_demand, nmbr_brnch_myTurn, truck_capacity, factory_production_limit, DC_cpcty,
+        nmbr_simulations_per_rollout, time_frm, demand_range, demand_min, trk_thrpt_rti_cnst, cmltv_demand_prb_dstrbutn);
+      
       for(int store = 0; store < nmbr_strs ; store++){
-        std::transform(crnt_total_demand[store].begin(), crnt_total_demand[store].end(), wa.demand[store].begin(), crnt_total_demand[store].begin(), std::minus<int>{});
+        std::transform(crnt_total_demand.at(store).begin(), crnt_total_demand.at(store).end(), wa.demand.at(store).begin(), crnt_total_demand.at(store).begin(), std::minus<int>{});
       }
     }
 
 }
 void WorldTurn::simulate(const std::vector<int> &wareHouseState, const std::vector<std::vector<int> > &crnt_total_demand, int truck_capacity,
   int nmbr_simulations_per_rollout, int time_frm,int factory_production_limit , int DC_cpcty, int demand_range, int demand_min, 
-  const std::vector<float> &cmltv_demand_prb_dstrbutn ){
+  float trk_thrpt_rti_cnst, const std::vector<float> &cmltv_demand_prb_dstrbutn ){
   int nmbr_strs = crnt_total_demand.size();
-  int nmbr_prdcts = crnt_total_demand[0].size();
+  int nmbr_prdcts = crnt_total_demand.at(0).size();
   std::vector<int> unfilled_trucks_usage;
   std::vector<std::vector< int> > oval_total_demand(nmbr_strs, std::vector<int>(nmbr_prdcts, 0));
   this->findUnFldTruckUsages(unfilled_trucks_usage, this, truck_capacity);
@@ -139,13 +171,35 @@ void WorldTurn::simulate(const std::vector<int> &wareHouseState, const std::vect
     std::vector<int> sim_wareHouseState = wareHouseState;
 
     while(current_depth < 2 * time_frm){
+      std::cout<< simulation_iter<<" "<<current_depth<<std::endl;
       MyAction my_actn = this->createRandomMyAction(truck_capacity, factory_production_limit, DC_cpcty, sim_wareHouseState, sim_crnt_total_demand );
+      
+      for(const auto &truck_data : my_actn.trucks){
+        const auto &trk_dstntn_str = truck_data.first;
+        const auto &trk_filling = truck_data.second;
+        int trk_usage = std::accumulate(trk_filling.begin(), trk_filling.end(), 0);
+        if(trk_usage < truck_capacity){
+          sim_unfilled_trucks_usage.push_back(trk_usage);
+        }
+        std::transform(sim_crnt_total_demand.at(trk_dstntn_str).begin(), sim_crnt_total_demand.at(trk_dstntn_str).end(), trk_filling.begin(), 
+          sim_crnt_total_demand.at(trk_dstntn_str).begin(), std::minus<int>{});
+        std::transform(sim_wareHouseState.begin(), sim_wareHouseState.end(), trk_filling.begin(), sim_wareHouseState.begin(), std::minus<int>{});
+      }
+      std::transform(sim_wareHouseState.begin(), sim_wareHouseState.end(), my_actn.total_prduc.begin(), sim_wareHouseState.begin(), std::minus<int>{});
+
       WorldAction wrld_actn = this->createRandomWorldAction(nmbr_strs, nmbr_prdcts, current_depth / 2, time_frm, demand_range, demand_min, cmltv_demand_prb_dstrbutn);
       
-      
+      for(int store = 0 ; store < nmbr_strs ; store++){
+        std::transform(sim_crnt_total_demand.at(store).begin(), sim_crnt_total_demand.at(store).end(), wrld_actn.demand.at(store).begin(), sim_crnt_total_demand.at(store).begin(), std::plus<int>{});
+        std::transform(sim_oval_total_demand.at(store).begin(), sim_oval_total_demand.at(store).end(), wrld_actn.demand.at(store).begin(), sim_oval_total_demand.at(store).begin(), std::plus<int>{});
+      }
+
 
       current_depth += 2;
     }
+
+    float fitness = this->evaluate(crnt_total_demand, oval_total_demand, unfilled_trucks_usage, truck_capacity, trk_thrpt_rti_cnst);
+    this->backpropagate(fitness);
 
   }
 }
@@ -180,7 +234,7 @@ void MyTurn::findCurrentTotalDmnd(std::vector< std::vector<int> > &crnt_total_de
       int nmbr_strs = crnt_total_demand.size();
 
       for(const auto truck: child.first.trucks){
-        std::transform(crnt_total_demand[truck.first].begin(), crnt_total_demand[truck.first].end(),truck.second.begin(), crnt_total_demand[truck.first].begin(), std::minus<int>{});
+        std::transform(crnt_total_demand.at(truck.first).begin(), crnt_total_demand.at(truck.first).end(),truck.second.begin(), crnt_total_demand.at(truck.first).begin(), std::minus<int>{});
       }
 
       break;
@@ -216,26 +270,30 @@ Node* MyTurn::select(float exploration_factor)  {
     float crnt_bst_fitness = std::numeric_limits<float>::lowest();
     for(const auto data_ : children ){
       float crnt_fitness = data_.second->fitness(this->nmbr_simls_, exploration_factor);
+      std::cout<<"Current Fitness"<<crnt_fitness<<std::endl;
       if( crnt_fitness > crnt_bst_fitness ){
         crnt_bst_fitness = crnt_fitness;
         fitest_chld = data_.second;
       }
+    }
+    if(fitest_chld == nullptr){
+      throw std::runtime_error("MyTurn Select did not select anything");
     }
     return fitest_chld->select(exploration_factor);
 }
 void Node::createRandomMyActionSubRoutine_GenerateTuckingForStore(const std::vector<bool> &willLastTruckBeSent, 
   const std::vector<bool> &semiFilledTruckNeeded, int nmbr_prdcts_to_send, const int truck_capacity, const int nmbr_prdcts, std::vector<int> &send_to_store,
   MyAction &my_actn, const int store){
-  if( (! willLastTruckBeSent[store]) && semiFilledTruckNeeded[store]){
+  if( (! willLastTruckBeSent.at(store)) && semiFilledTruckNeeded.at(store)){
     int number_of_products_to_be_dropped = nmbr_prdcts_to_send % truck_capacity;
     nmbr_prdcts_to_send -= number_of_products_to_be_dropped;
     //this horribly inefficient method can be imporved by sampling number_of_products_to_be_dropped rndm nmbrs b/w [0, total number of products ) 
     //and using that to drop products 
     while(number_of_products_to_be_dropped > 0){
       int rndm_prdct = get_rndm_int(0, nmbr_prdcts);
-      if(send_to_store[rndm_prdct] > 0){
-        send_to_store[rndm_prdct]--;
-        my_actn.total_prduc[rndm_prdct]--;
+      if(send_to_store.at(rndm_prdct) > 0){
+        send_to_store.at(rndm_prdct)--;
+        my_actn.total_prduc.at(rndm_prdct)--;
         number_of_products_to_be_dropped--;
       }
     }
@@ -246,19 +304,19 @@ void Node::createRandomMyActionSubRoutine_GenerateTuckingForStore(const std::vec
     // my_actn.trucks.push_back(make_pair(store, std::vector<int>(nmbr_prdcts, 0)));
     // truck_unused = truck_capacity;
     while(nmbr_prdcts_to_send > 0){
-      if(send_to_store[product] > 0 && truck_unused > 0){
-        int product_shift = std::min(send_to_store[product], truck_unused);
-        my_actn.trucks.back().second[product] += product_shift;
-        send_to_store[product] -= product_shift;
+      if(send_to_store.at(product) > 0 && truck_unused > 0){
+        int product_shift = std::min(send_to_store.at(product), truck_unused);
+        my_actn.trucks.back().second.at(product) += product_shift;
+        send_to_store.at(product) -= product_shift;
         truck_unused -= product_shift;
         nmbr_prdcts_to_send -= product_shift;
-      }else if(send_to_store[product] == 0 && truck_unused > 0){
+      }else if(send_to_store.at(product) == 0 && truck_unused > 0){
         product++;
-      }else if(send_to_store[product] > 0 && truck_unused == 0){
+      }else if(send_to_store.at(product) > 0 && truck_unused == 0){
         my_actn.trucks.push_back(make_pair(store, std::vector<int>(nmbr_prdcts, 0)));
         truck_unused = truck_capacity;
       }else{
-        // send_to_store[product] == 0 && truck_unused == 0
+        // send_to_store.at(product) == 0 && truck_unused == 0
         product++;
         my_actn.trucks.push_back(make_pair(store, std::vector<int>(nmbr_prdcts, 0)));
         truck_unused = truck_capacity;
@@ -271,9 +329,9 @@ int Node::createRandomMyActionSubRoutine_LiabilityTrkVc(std::vector<bool> &willL
   int ignored_product = 0;
   //given a willLastTruckBeSent, randomly drop the once which are being sent (i.e evaluates random bool if willLastTruckBeSent is true)
   for(int store = 0 ; store < nmbr_strs ; store++){
-    float lastTrkUtilizsn = static_cast<float>(total_product_store[store] % truck_capacity) / static_cast<float>(truck_capacity);
-    willLastTruckBeSent[store] = willLastTruckBeSent[store] && (get_rndm_nmbr_nrml() <  lastTrkUtilizsn);
-    ignored_product += willLastTruckBeSent[store] * (total_product_store[store] % truck_capacity);
+    float lastTrkUtilizsn = static_cast<float>(total_product_store.at(store) % truck_capacity) / static_cast<float>(truck_capacity);
+    willLastTruckBeSent.at(store) = willLastTruckBeSent.at(store) && (get_rndm_nmbr_nrml() <  lastTrkUtilizsn);
+    ignored_product += willLastTruckBeSent.at(store) * (total_product_store.at(store) % truck_capacity);
   }
   return ignored_product;
 }
@@ -301,14 +359,14 @@ const std::vector< std::vector<int32_t> > &crnt_total_demand ){
   product_to_demand(nmbr_prdcts); //[product->entire demand of that product at warehouse]
   int liability_val = 0;
   for(int store = 0 ; store < nmbr_strs ; store++){
-    total_product_store[store] = std::accumulate(crnt_total_demand[store].begin(), crnt_total_demand[store].end(), 0);
-    semiFilledTruckNeeded[store] = total_product_store[store] % truck_capacity;
-    liability_val += total_product_store[store] % truck_capacity;
+    total_product_store.at(store) = std::accumulate(crnt_total_demand.at(store).begin(), crnt_total_demand.at(store).end(), 0);
+    semiFilledTruckNeeded.at(store) = total_product_store.at(store) % truck_capacity;
+    liability_val += total_product_store.at(store) % truck_capacity;
   }
   for(int product = 0 ; product < nmbr_prdcts ; product++){
-    product_to_demand[product] = std::accumulate(crnt_total_demand.begin(), crnt_total_demand.end(), 0, 
+    product_to_demand.at(product) = std::accumulate(crnt_total_demand.begin(), crnt_total_demand.end(), 0, 
       [&product](int total,const std::vector<int> &stores_demand){
-        return total + stores_demand[product];
+        return total + stores_demand.at(product);
       }
     );
   }
@@ -331,9 +389,9 @@ const std::vector< std::vector<int32_t> > &crnt_total_demand ){
       int dropped_truk_val = 0;
       while( dropped_truk_val < ( total_fctry_gnrt_demand - factory_production_limit ) ){
         int drpd_str = get_rndm_int(0, nmbr_strs);
-        if(willLastTruckBeSent[drpd_str]){
-          willLastTruckBeSent[drpd_str] = false;
-          dropped_truk_val += total_product_store[drpd_str] % truck_capacity;
+        if(willLastTruckBeSent.at(drpd_str)){
+          willLastTruckBeSent.at(drpd_str) = false;
+          dropped_truk_val += total_product_store.at(drpd_str) % truck_capacity;
         }
       }
     }
@@ -346,17 +404,17 @@ const std::vector< std::vector<int32_t> > &crnt_total_demand ){
       for(int store = 0 ; store < nmbr_strs ; store++){
         for(int product = 0 ; product < nmbr_prdcts ; product++){
           low = high;
-          high = crnt_total_demand[store][product] + low;
+          high = crnt_total_demand.at(store).at(product) + low;
           if(low >= random_numbers.back())
             return ;
           int product_drop = 0;
           for(int strt_indx = binarySearchFirstLargerIndex<int>( random_numbers, low, 0, random_numbers.size()); strt_indx < random_numbers.size() ; strt_indx++){
-            if(random_numbers[strt_indx] >= high)
+            if(random_numbers.at(strt_indx) >= high)
               break;
             product_drop++;
           }
 
-          fctry_gnrt_demand[product] -= product_drop;
+          fctry_gnrt_demand.at(product) -= product_drop;
         }
       }
       total_fctry_gnrt_demand = factory_production_limit;
@@ -373,25 +431,27 @@ const std::vector< std::vector<int32_t> > &crnt_total_demand ){
   my_actn.total_prduc.resize(nmbr_prdcts);
   std::transform(fctry_gnrt_demand.begin(), fctry_gnrt_demand.end(), unsent_produce.begin(), my_actn.total_prduc.begin(), std::plus<int>{});
   for(int store = 0 ; store < nmbr_strs ; store++){
-    std::vector<int> send_to_store = crnt_total_demand[store];
-    int nmbr_prdcts_to_send = total_product_store[store];
+    std::vector<int> send_to_store = crnt_total_demand.at(store);
+    int nmbr_prdcts_to_send = total_product_store.at(store);
     createRandomMyActionSubRoutine_GenerateTuckingForStore(willLastTruckBeSent, semiFilledTruckNeeded, nmbr_prdcts_to_send, truck_capacity, 
       nmbr_prdcts, send_to_store, my_actn, store);
   }
   return my_actn;
 }
-void MyTurn::expand(const std::vector<int> &wareHouseState, const std::vector<std::vector<int> > &crnt_total_demand, int nmbr_brnch_myTurn, int truck_capacity,
-int factory_production_limit, int DC_cpcty ){
-
+void MyTurn::expand(const std::vector<int> &wareHouseState, const std::vector<std::vector<int> > &crnt_total_demand, int nmbr_brnch_myTurn, 
+  int truck_capacity, int factory_production_limit, int DC_cpcty, int nmbr_simulations_per_rollout, int time_frm, int demand_range, int demand_min,
+  float trk_thrpt_rti_cnst, const std::vector<float> &cmltv_demand_prb_dstrbutn){
   for(int iter_brnch = 0 ; iter_brnch < nmbr_brnch_myTurn ; iter_brnch++){
     MyAction ma = this->createRandomMyAction(truck_capacity, factory_production_limit, DC_cpcty, wareHouseState, crnt_total_demand);
     WorldTurn *chld_nd = new WorldTurn(this, this->depth_ + 1);
     children.push_back(std::pair<MyAction, WorldTurn*>(ma, chld_nd));
+    chld_nd->simulate(wareHouseState,crnt_total_demand, truck_capacity, nmbr_simulations_per_rollout, time_frm, factory_production_limit , DC_cpcty,
+        demand_range, demand_min, trk_thrpt_rti_cnst, cmltv_demand_prb_dstrbutn );
   }
 
 }
 MonteCarloTreeSearchCpp::MonteCarloTreeSearchCpp(int demand_min,int demand_max,int nmbr_strs,int nmbr_prdcts,int time_frm,int DC_cpcty,int truck_capacity,
-  int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn,int nmbr_simulations_per_rollout, int factory_production_limit,float exploration_factor,
+  int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn,int nmbr_simulations_per_rollout, int factory_production_limit,float exploration_factor,float trk_thrpt_rti_cnst,
    py::array_t<int32_t> wareHouseStatePy, py::array_t<float> demand_prb_dstrbutnPy) : 
     // widthOfFirstLevel_{widthOfFirstLevel},
     demand_min_{demand_min},
@@ -406,14 +466,15 @@ MonteCarloTreeSearchCpp::MonteCarloTreeSearchCpp(int demand_min,int demand_max,i
     nmbr_brnch_myTurn_{nmbr_brnch_myTurn},
     nmbr_simulations_per_rollout_{nmbr_simulations_per_rollout},
     // max_nmbr_trucks_{max_nmbr_trucks},
-    exploration_factor_{exploration_factor} {
+    exploration_factor_{exploration_factor},
+    trk_thrpt_rti_cnst_{trk_thrpt_rti_cnst} {
     
     py::buffer_info wareHouseState = wareHouseStatePy.request(); 
     py::buffer_info demand_prb_dstrbutn = demand_prb_dstrbutnPy.request(); 
     
     if(wareHouseState.ndim != 1)
       throw std::runtime_error("The states of warehouse should be a 1-D array");
-    if(wareHouseState.shape[0] != nmbr_prdcts_)
+    if(wareHouseState.shape.at(0) != nmbr_prdcts_)
       throw std::runtime_error("The wareHouseState length should be equal to the number of products");
     wareHouseState_.resize(nmbr_prdcts_);
     
@@ -425,8 +486,14 @@ MonteCarloTreeSearchCpp::MonteCarloTreeSearchCpp(int demand_min,int demand_max,i
     if(demand_prb_dstrbutn.ndim != 4)
       throw std::runtime_error("Incorrect dimentions for the probability distribution");
     int demand_range_ = demand_max_ - demand_min_ + 1;
-    if(demand_prb_dstrbutn.shape != std::vector<py::ssize_t>({nmbr_strs_, nmbr_prdcts_, time_frm_, demand_range_}))
+    if(demand_prb_dstrbutn.shape != std::vector<py::ssize_t>({nmbr_strs_, nmbr_prdcts_, time_frm_, demand_range_})){
+      std::cout<<"Current Shape :: ";
+      std::copy(demand_prb_dstrbutn.shape.begin(), demand_prb_dstrbutn.shape.end(), std::ostream_iterator<py::ssize_t>(std::cout, " "));
+      std::cout<<std::endl;
+      std::cout<<"Exprected Shape :: ";
+      std::cout<<nmbr_strs_<<" "<< nmbr_prdcts_<<" "<< time_frm_<<" "<< demand_range_<<std::endl;
       throw std::runtime_error("Shape of probability distribution is not correct");
+    }
     
     int prb_dstrbutn_sz = nmbr_strs_ * nmbr_prdcts_ * time_frm_ * demand_range_;
     demand_prb_dstrbutn_.resize(prb_dstrbutn_sz);
@@ -437,9 +504,9 @@ MonteCarloTreeSearchCpp::MonteCarloTreeSearchCpp(int demand_min,int demand_max,i
       for(int product = 0 ; product < nmbr_prdcts_ ; product++){
         for(int time = 0 ; time < time_frm_ ; time++){
           int strt_indx = rowMajor4D(store, product, time, 0, nmbr_strs_, nmbr_prdcts_, time_frm_, demand_range_);
-          cmltv_demand_prb_dstrbutn_[strt_indx] = demand_prb_dstrbutn_[strt_indx]; 
+          cmltv_demand_prb_dstrbutn_.at(strt_indx) = demand_prb_dstrbutn_.at(strt_indx); 
           for(int demand = 1 ; demand < demand_range_ ; demand++){
-            cmltv_demand_prb_dstrbutn_[strt_indx + demand] = cmltv_demand_prb_dstrbutn_[strt_indx + demand - 1] + demand_prb_dstrbutn_[strt_indx + demand];
+            cmltv_demand_prb_dstrbutn_.at(strt_indx + demand) = cmltv_demand_prb_dstrbutn_.at(strt_indx + demand - 1) + demand_prb_dstrbutn_.at(strt_indx + demand);
           }
         }
       }
@@ -461,10 +528,12 @@ MonteCarloTreeSearchCpp::~MonteCarloTreeSearchCpp(){
   delete this->treeRoot;
 }
 void MonteCarloTreeSearchCpp::MainLoop () {
-    WorldTurn* node = static_cast<WorldTurn* >(treeRoot->select(this->exploration_factor_));
-    node->expand( this->nmbr_brnch_wrldTurn_, this->nmbr_brnch_myTurn_, this->wareHouseState_,this->cmltv_demand_prb_dstrbutn_, this->nmbr_strs_, 
-      this->nmbr_prdcts_, this->time_frm_, this->demand_range_, this->demand_min_ , this->truck_capacity_, this->factory_production_limit_, 
-      this->DC_cpcty_);
+  std::cout<<"Starting select"<<std::endl;
+  WorldTurn* node = static_cast<WorldTurn* >(treeRoot->select(this->exploration_factor_));
+  std::cout<<"Starting Expand"<<std::endl;
+  node->expand( this->nmbr_brnch_wrldTurn_, this->nmbr_brnch_myTurn_, this->wareHouseState_,this->cmltv_demand_prb_dstrbutn_, this->nmbr_strs_, 
+    this->nmbr_prdcts_, this->time_frm_, this->demand_range_, this->demand_min_ , this->truck_capacity_, this->factory_production_limit_, 
+    this->DC_cpcty_, this->nmbr_simulations_per_rollout_, this->trk_thrpt_rti_cnst_);
 }
 
 
@@ -472,7 +541,7 @@ PYBIND11_MODULE(PyMCTS, module_handle) {
   module_handle.doc() = "I'm a docstring hehe";
   py::class_<MonteCarloTreeSearchCpp>(
 			module_handle, "MonteCarloTreeSearch"
-			).def(py::init<int,int,int,int,int,int,int,int,int,int,int,float,py::array_t<int32_t> , py::array_t<float> >())
+			).def(py::init<int,int,int,int,int,int,int,int,int,int,int,float,float,py::array_t<int32_t> , py::array_t<float> >())
       .def("__call__", &MonteCarloTreeSearchCpp::MainLoop)
     ;
 }
