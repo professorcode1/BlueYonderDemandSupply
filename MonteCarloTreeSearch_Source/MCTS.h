@@ -144,6 +144,11 @@ public:
   void generate_all_children(int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn_, 
     int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min, int truck_capacity, int factory_production_limit, int DC_cpcty,
     int nmbr_simulations_per_rollout,float trk_thrpt_rti_cnst, const std::vector<float> &demand_prb_dstrbutn_);
+  void addOneChild(int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn, 
+    int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min, int truck_capacity, int factory_production_limit, int DC_cpcty,
+    int nmbr_simulations_per_rollout,float trk_thrpt_rti_cnst,const std::vector<std::vector<int> > &child_demand );
+
+  MyAction firstChildsBestSolution();
 };
 
 class MyTurn : public Node{
@@ -163,6 +168,8 @@ public:
   void expand(const std::vector<int> &wareHouseState, const std::vector<std::vector<int> > &crnt_total_demand, int nmbr_brnch_myTurn, 
     int truck_capacity, int factory_production_limit, int DC_cpcty, int nmbr_simulations_per_rollout, int time_frm, int demand_range, int demand_min,
     float trk_thrpt_rti_cnst, const std::vector<float> &cmltv_demand_prb_dstrbutn);
+
+  MyAction BestSolution();
 };
 
 class MonteCarloTreeSearchCpp {
@@ -185,14 +192,17 @@ private:
   std::vector<int32_t> wareHouseState_;
   std::vector<float> demand_prb_dstrbutn_;
   std::vector<float> cmltv_demand_prb_dstrbutn_;
+  std::vector<std::vector<int> > demand_right_now_;
 
 public:
   MonteCarloTreeSearchCpp(int demand_min,int demand_max,int nmbr_strs,int nmbr_prdcts,int time_frm,int DC_cpcty,int truck_capacity,
   int factory_production_limit_, int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn,int nmbr_simulations_per_rollout,  float exploration_factor,
-   float trk_thrpt_rti_cnst,  py::array_t<int32_t> wareHouseStatePy, py::array_t<float> demand_prb_dstrbutnPy) ;
+   float trk_thrpt_rti_cnst,  py::array_t<int32_t> wareHouseStatePy, py::array_t<float> demand_prb_dstrbutnPy, py::array_t<int> demand_right_nowPy) ;
    ~MonteCarloTreeSearchCpp();
 
 
   void MainLoop();
+
+  py::tuple currentBestSolution();
 };
 

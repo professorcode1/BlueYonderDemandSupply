@@ -179,7 +179,12 @@ void WorldTurn::simulate(const std::vector<int> &wareHouseState, const std::vect
   std::vector<std::vector< int> > oval_total_demand(nmbr_strs, std::vector<int>(nmbr_prdcts, 0));
   this->findUnFldTruckUsages(unfilled_trucks_usage, this, truck_capacity);
   this->findOverAllTotalDmnd(oval_total_demand, this);
+  int progress = -1;
   for(int simulation_iter = 0 ; simulation_iter < nmbr_simulations_per_rollout ; simulation_iter++){
+    if( ( simulation_iter * 100 ) / nmbr_simulations_per_rollout != progress){
+      progress = ( simulation_iter * 100 ) / nmbr_simulations_per_rollout;
+      py::print("Progress :: ", progress, "%");
+    }
     int current_depth = this->depth_;
     std::vector<std::vector<int> > sim_crnt_total_demand = crnt_total_demand;
     std::vector<std::vector<int> > sim_oval_total_demand = oval_total_demand;
@@ -223,6 +228,7 @@ void WorldTurn::generate_all_children(int nmbr_brnch_wrldTurn, int nmbr_brnch_my
   &cmltv_demand_prb_dstrbutn, int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min, int truck_capacity, int factory_production_limit,
   int DC_cpcty, int nmbr_simulations_per_rollout,float trk_thrpt_rti_cnst, const std::vector<float> &demand_prb_dstrbutn_){
   std::cout<<"Entered the generate all children procedure"<<std::endl;
+  py::print("For any resonably sized input this function will span longer than the length of the universe, lets hope you know what you are doing :)");
   std::vector<std::vector<int> > crnt_total_demand(nmbr_strs, std::vector<int>(nmbr_prdcts, 0));
   
   if(this->parent_){
@@ -244,9 +250,9 @@ void WorldTurn::generate_all_children(int nmbr_brnch_wrldTurn, int nmbr_brnch_my
       if(explored_children.find(intermediary_array) != explored_children.end())
         return ;
       py::print("Hit base case");
-      // WorldAction wrld_actn(intermediary_array);
-      // this->addWorldActionToChildren(wrld_actn, crnt_total_demand, wareHouseState, nmbr_brnch_myTurn, truck_capacity, factory_production_limit, DC_cpcty, nmbr_simulations_per_rollout, time_frm,
-      //   demand_range, demand_min, trk_thrpt_rti_cnst, cmltv_demand_prb_dstrbutn);
+      WorldAction wrld_actn(intermediary_array);
+      this->addWorldActionToChildren(wrld_actn, crnt_total_demand, wareHouseState, nmbr_brnch_myTurn, truck_capacity, factory_production_limit, DC_cpcty, nmbr_simulations_per_rollout, time_frm,
+        demand_range, demand_min, trk_thrpt_rti_cnst, cmltv_demand_prb_dstrbutn);
     }
     else if(store < nmbr_strs && product == nmbr_prdcts){
       backtrack_over_twoD_arr(store + 1, 0);
@@ -278,6 +284,28 @@ void WorldTurn::generate_all_children(int nmbr_brnch_wrldTurn, int nmbr_brnch_my
   std::cout<<"Calling Backtrack function "<<std::endl;
   backtrack_over_twoD_arr(0, 0);
 }
+MyAction WorldTurn::firstChildsBestSolution(){
+  if(this->children.empty())
+    throw std::runtime_error("Empty children list in firstChildBestSolution");
+  return this->children.front().second->BestSolution();
+}
+void WorldTurn::addOneChild(int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn, std::vector<int32_t> wareHouseState, const std::vector<float> &cmltv_demand_prb_dstrbutn, 
+  int nmbr_strs, int nmbr_prdcts, int time_frm, int demand_range, int demand_min, int truck_capacity, int factory_production_limit, int DC_cpcty,
+  int nmbr_simulations_per_rollout,float trk_thrpt_rti_cnst,const std::vector<std::vector<int> > &child_demand){
+
+  if(!this->children.empty()){
+    throw std::runtime_error("addOneChild called on a node which already has children. Not implimented error!");
+  }
+
+  std::vector<std::vector<int> > crnt_total_demand(nmbr_strs, std::vector<int>(nmbr_prdcts, 0));
+  if(this->parent_){
+    this->parent_->findWarehouseState(wareHouseState, this);
+    this->parent_->findCurrentTotalDmnd(crnt_total_demand, this);
+  }
+  WorldAction wrld_actn(child_demand);
+  this->addWorldActionToChildren(wrld_actn, crnt_total_demand, wareHouseState, nmbr_brnch_myTurn, truck_capacity, factory_production_limit, DC_cpcty, nmbr_simulations_per_rollout, time_frm,
+  demand_range, demand_min, trk_thrpt_rti_cnst, cmltv_demand_prb_dstrbutn);
+  } 
 MyTurn::~MyTurn(){
   for(auto &child: this->children)
     delete child.second;
@@ -335,6 +363,27 @@ void MyTurn::findUnFldTruckUsages(std::vector<int> &usage, Node* chld_node, int 
     }
   }
   this->parent_->findUnFldTruckUsages(usage, this, truck_capacity);
+}
+MyAction MyTurn::BestSolution(){
+    if(this->IamLeaf()){
+        throw std::runtime_error("A MyTurn Node is a leaf node");
+    }
+    Node* fitest_chld = nullptr;
+    float crnt_bst_fitness = std::numeric_limits<float>::min();
+    MyAction my_actn;
+    for(const auto data_ : children ){
+      float crnt_fitness = this->success_ / this->nmbr_simls_;
+      // std::cout<<"Current Fitness"<<crnt_fitness<<std::endl;
+      if( crnt_fitness > crnt_bst_fitness ){
+        crnt_bst_fitness = crnt_fitness;
+        fitest_chld = data_.second;
+        my_actn= data_.first;
+      }
+    }
+    if(fitest_chld == nullptr){
+      throw std::runtime_error("MyTurn Select did not select anything");
+    }
+    return my_actn;
 }
 Node* MyTurn::select(float exploration_factor)  {
     if(this->IamLeaf()){
@@ -519,6 +568,7 @@ void MyTurn::expand(const std::vector<int> &wareHouseState, const std::vector<st
     MyAction ma = this->createRandomMyAction(truck_capacity, factory_production_limit, DC_cpcty, wareHouseState, crnt_total_demand);
     WorldTurn *chld_nd = new WorldTurn(this, this->depth_ + 1);
     children.push_back(std::pair<MyAction, WorldTurn*>(ma, chld_nd));
+    py::print("Simulation ", iter_brnch," of ", nmbr_brnch_myTurn);
     chld_nd->simulate(wareHouseState,crnt_total_demand, truck_capacity, nmbr_simulations_per_rollout, time_frm, factory_production_limit , DC_cpcty,
         demand_range, demand_min, trk_thrpt_rti_cnst, cmltv_demand_prb_dstrbutn );
   }
@@ -526,7 +576,7 @@ void MyTurn::expand(const std::vector<int> &wareHouseState, const std::vector<st
 }
 MonteCarloTreeSearchCpp::MonteCarloTreeSearchCpp(int demand_min,int demand_max,int nmbr_strs,int nmbr_prdcts,int time_frm,int DC_cpcty,int truck_capacity,
   int nmbr_brnch_wrldTurn, int nmbr_brnch_myTurn,int nmbr_simulations_per_rollout, int factory_production_limit,float exploration_factor,float trk_thrpt_rti_cnst,
-   py::array_t<int32_t> wareHouseStatePy, py::array_t<float> demand_prb_dstrbutnPy) : 
+   py::array_t<int32_t> wareHouseStatePy, py::array_t<float> demand_prb_dstrbutnPy,py::array_t<int> demand_right_nowPy) : 
     // widthOfFirstLevel_{widthOfFirstLevel},
     demand_min_{demand_min},
     demand_max_{demand_max},
@@ -544,22 +594,37 @@ MonteCarloTreeSearchCpp::MonteCarloTreeSearchCpp(int demand_min,int demand_max,i
     
     py::buffer_info wareHouseState = wareHouseStatePy.request(); 
     py::buffer_info demand_prb_dstrbutn = demand_prb_dstrbutnPy.request(); 
-    
+    py::buffer_info demand_right_now = demand_right_nowPy.request();
+    if(demand_right_now.ndim != 2)
+      throw std::runtime_error("The dimention of demand right now is not correct");
+    if(demand_right_now.shape != std::vector<py::ssize_t>({nmbr_strs, nmbr_prdcts}))
+      throw std::runtime_error("The shape of demand right now is not correct");
+    for(int store = 0,*strt_pntr = static_cast<int32_t*>(demand_right_now.ptr); store < nmbr_strs ; store++){
+      this->demand_right_now_.push_back(std::vector<int>(nmbr_prdcts));
+      int start = store * nmbr_prdcts;
+      int end = start + nmbr_prdcts;
+      std::copy(strt_pntr + start , strt_pntr + end, this->demand_right_now_.back().begin());
+    }
+
     if(wareHouseState.ndim != 1)
       throw std::runtime_error("The states of warehouse should be a 1-D array");
     if(wareHouseState.shape.at(0) != nmbr_prdcts_)
       throw std::runtime_error("The wareHouseState length should be equal to the number of products");
     wareHouseState_.resize(nmbr_prdcts_);
-    
     copy(static_cast<int32_t *>(wareHouseState.ptr), static_cast<int32_t *>(wareHouseState.ptr) + nmbr_prdcts, wareHouseState_.begin());
       
+
+
+
     int sm_of_prds = accumulate(wareHouseState_.begin(), wareHouseState_.end(), 0);
     if(sm_of_prds > DC_cpcty_)
       throw std::runtime_error("There are more products in the warehouse than the capacity, which is impossible.");
     if(demand_prb_dstrbutn.ndim != 4)
       throw std::runtime_error("Incorrect dimentions for the probability distribution");
+
     int demand_range_ = demand_max_ - demand_min_ + 1;
     this->demand_range_ = demand_range_;
+
     if(demand_prb_dstrbutn.shape != std::vector<py::ssize_t>({nmbr_strs_, nmbr_prdcts_, time_frm_, demand_range_})){
       std::cout<<"Current Shape :: ";
       std::copy(demand_prb_dstrbutn.shape.begin(), demand_prb_dstrbutn.shape.end(), std::ostream_iterator<py::ssize_t>(std::cout, " "));
@@ -611,10 +676,15 @@ MonteCarloTreeSearchCpp::MonteCarloTreeSearchCpp(int demand_min,int demand_max,i
     }
 
     treeRoot = new WorldTurn(nullptr, 0);
-    treeRoot->generate_all_children(this->nmbr_brnch_wrldTurn_, this->nmbr_brnch_myTurn_, this->wareHouseState_, this->cmltv_demand_prb_dstrbutn_, 
-      this->nmbr_strs_, this->nmbr_prdcts_, this->time_frm_, this->demand_range_, this->demand_min_, this->truck_capacity_, this->factory_production_limit_,
-      this->DC_cpcty_, this->nmbr_simulations_per_rollout_, this->trk_thrpt_rti_cnst_, this->demand_prb_dstrbutn_);
+    treeRoot->addOneChild( this->nmbr_brnch_wrldTurn_, this->nmbr_brnch_myTurn_, this->wareHouseState_,this->cmltv_demand_prb_dstrbutn_, this->nmbr_strs_, 
+      this->nmbr_prdcts_, this->time_frm_, this->demand_range_, this->demand_min_ , this->truck_capacity_, this->factory_production_limit_, 
+      this->DC_cpcty_, this->nmbr_simulations_per_rollout_, this->trk_thrpt_rti_cnst_, this->demand_right_now_);
     
+}
+py::tuple MonteCarloTreeSearchCpp::currentBestSolution(){
+  MyAction my_actn = this->treeRoot->firstChildsBestSolution();
+  py::tuple res = py::make_tuple(my_actn.total_prduc, my_actn.trucks);
+  return res;
 }
 
 MonteCarloTreeSearchCpp::~MonteCarloTreeSearchCpp(){
@@ -634,7 +704,8 @@ PYBIND11_MODULE(PyMCTS, module_handle) {
   module_handle.doc() = "I'm a docstring hehe";
   py::class_<MonteCarloTreeSearchCpp>(
 			module_handle, "MonteCarloTreeSearch"
-			).def(py::init<int,int,int,int,int,int,int,int,int,int,int,float,float,py::array_t<int32_t> , py::array_t<float> >())
+			).def(py::init<int,int,int,int,int,int,int,int,int,int,int,float,float,py::array_t<int32_t> , py::array_t<float>,py::array_t<int32_t> >())
       .def("__call__", &MonteCarloTreeSearchCpp::MainLoop)
+      .def_property_readonly("CurrentBestSolution",[](MonteCarloTreeSearchCpp &self){return self.currentBestSolution();})
     ;
 }

@@ -83,10 +83,11 @@ class TestCase:
         self.truck_max_cap = truck_max_cap
 
         self.maximum_truck = truck_max_cap * min(DC_capacity, demand_range_max * number_of_stores*number_of_products )
-    
-    def getData(self, demand_per_day_average, seed = None, simplex_reduction_factor = 0.3, suppress_error = False):
+
+
 #         simplex_reduction_factor :- making this value low will reduce variance and all data will look the same
-#                                    keeping it high will make the data look completely random . 0.3 is just the right value
+#                                    keeping it high will make the data look completely random . 0.3 is just the right value    
+    def getData(self, demand_per_day_average, seed = None, simplex_reduction_factor = 0.3, suppress_error = False):
         demand_range = self.demand_range_max - self.demand_range_min + 1
         data = np.zeros((self.number_of_stores, self.number_of_products, self.timeframe, demand_range), 
                         dtype=np.float32)
@@ -118,6 +119,15 @@ class TestCase:
         getDataInter(data, self.demand_range_min, self.demand_range_max)
         
         return data
+
+    def generateStochasticInstantDemand(self, data, demand_min):
+        (nmbr_strs, nmbr_prdcts, time_frm, demand_range) = data.shape
+        random_nmbrs = np.random.rand(nmbr_strs, nmbr_prdcts)
+        ans = np.floor(random_nmbrs * demand_range) + demand_min
+        ans = ans.astype(np.int32)
+        return ans
+                
+
 if __name__ == "__main__":
     tc = TestCase(10,10, DC_capacity=50)
     hlpr = tc.getData(demand_per_day_average = 10000, simplex_reduction_factor = 0.3)
